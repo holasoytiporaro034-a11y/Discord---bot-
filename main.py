@@ -1,154 +1,1041 @@
-import asyncio,discord,os,threading,logging,requests as http
+import asyncio
+import discord
+import os
+import threading
+import logging
+import requests as http
+import json
 from discord import app_commands
-from flask import Flask,redirect,request,session,jsonify
+from flask import Flask, redirect, request, session, jsonify, send_from_directory
 from functools import wraps
-from datetime import datetime,timezone,timedelta
+from datetime import datetime, timezone, timedelta
 from html import escape
 
-logging.basicConfig(level=logging.INFO)
-logger=logging.getLogger("bot")
-BOT_TOKEN=os.environ.get("DISCORD_TOKEN","")
-CLIENT_ID=os.environ.get("DISCORD_CLIENT_ID","")
-CLIENT_SECRET=os.environ.get("DISCORD_CLIENT_SECRET","")
-BASE_URL=os.environ.get("BASE_URL","http://localhost:8080")
-REDIRECT_URI=f"{BASE_URL}/callback"
-API="https://discord.com/api/v10"
-app=Flask(__name__)
-app.secret_key=os.environ.get("SECRET_KEY","clave-secreta")
-welcome_configs={}
-def bh():return{"Authorization":f"Bot {BOT_TOKEN}"}
-def uh():return{"Authorization":f"Bearer {session.get('access_token','')}"}
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("randoom")
+
+BOT_TOKEN     = os.environ.get("DISCORD_TOKEN", "")
+CLIENT_ID     = os.environ.get("DISCORD_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "")
+BASE_URL      = os.environ.get("BASE_URL", "http://localhost:8080")
+REDIRECT_URI  = f"{BASE_URL}/callback"
+API           = "https://discord.com/api/v10"
+PORT          = int(os.environ.get("PORT", 8080))
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+import sys as _sys
+_sys.path.insert(0, BASE_DIR)
+from config import (
+    welcome_configs, save_welcome,
+    verify_configs,  save_verify,
+    logs_configs,    save_logs,
+)
+
+# ─── FLASK ────────────────────────────────────────────────────────────────────
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+app = Flask(__name__, static_folder=STATIC_DIR)
+app.secret_key = os.environ.get("SECRET_KEY", os.environ.get("SESSION_SECRET", "randoom-secret-2024"))
+
+def bh():
+    return {"Authorization": f"Bot {BOT_TOKEN}"}
+
+def uh():
+    return {"Authorization": f"Bearer {session.get('access_token', '')}"}
+
 def require_login(f):
     @wraps(f)
-    def dec(*a,**kw):
-        if"access_token"not in session:return redirect("/")
-        return f(*a,**kw)
+    def dec(*a, **kw):
+        if "access_token" not in session:
+            return redirect("/")
+        return f(*a, **kw)
     return dec
 
-@app.route('/')
+FAVICON_B64 = ""
+try:
+    import base64
+    with open(os.path.join(BASE_DIR, "static", "favicon.png"), "rb") as _f:
+        FAVICON_B64 = base64.b64encode(_f.read()).decode()
+except Exception:
+    pass
+
+FAVICON_TAG = (
+    f'<link rel="icon" type="image/png" href="data:image/png;base64,{FAVICON_B64}">'
+    if FAVICON_B64 else ""
+)
+
+CSS = """
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0e13;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+a{text-decoration:none;color:inherit}
+.nav{background:#0d1117;border-bottom:1px solid #21262d;padding:0 24px;height:54px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+.logo{font-size:20px;font-weight:900;color:#3cffa0;letter-spacing:-0.5px}
+.badge{background:#3cffa0;color:#0b0e13;font-size:9px;font-weight:800;padding:2px 7px;border-radius:20px;letter-spacing:0.5px}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.avatar{width:30px;height:30px;border-radius:50%;border:2px solid #21262d}
+.btn-sm{background:#21262d;border:1px solid #30363d;color:#e6edf3;padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-sm:hover{background:#30363d}
+.wrap{max-width:900px;margin:0 auto;padding:28px 16px}
+.card{background:#0d1117;border:1px solid #21262d;border-radius:12px;padding:20px;margin-bottom:16px}
+.card h3{font-size:15px;font-weight:700;margin-bottom:4px}
+.card p{font-size:12px;color:#8b949e;margin-bottom:16px}
+.fg{margin-bottom:13px}
+.fg label{display:block;font-size:11px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px}
+select,textarea,input[type=text],input[type=number],input[type=color]{width:100%;background:#0b0e13;border:1px solid #30363d;border-radius:8px;color:#e6edf3;padding:9px 12px;font-size:13px;outline:none;font-family:inherit;transition:border-color .15s}
+select:focus,textarea:focus,input:focus{border-color:#3cffa0}
+textarea{resize:vertical;min-height:80px}
+input[type=color]{height:38px;padding:4px 8px;cursor:pointer}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-g{background:#3cffa0;color:#0b0e13}
+.btn-b{background:#58a6ff;color:#0b0e13}
+.btn-r{background:#f85149;color:#fff}
+.btn-y{background:#d29922;color:#fff}
+.btn-d{background:#21262d;color:#e6edf3;border:1px solid #30363d}
+.tabs{display:flex;gap:0;border-bottom:1px solid #21262d;margin-bottom:22px;overflow-x:auto}
+.tab{padding:10px 16px;font-size:13px;font-weight:500;color:#8b949e;border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer;background:none;border-top:none;border-left:none;border-right:none;transition:color .15s}
+.tab:hover{color:#e6edf3}
+.tab.active{color:#3cffa0;border-bottom-color:#3cffa0;font-weight:700}
+.panel{display:none}.panel.active{display:block}
+.alert{padding:10px 14px;border-radius:8px;font-size:12px;font-weight:600;margin-bottom:14px;display:none}
+.alert-ok{background:rgba(60,255,160,.1);border:1px solid #3cffa0;color:#3cffa0}
+.alert-err{background:rgba(248,81,73,.1);border:1px solid #f85149;color:#f85149}
+.mrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #161b22}
+.mrow:last-child{border-bottom:none}
+.stat{background:#0d1117;border:1px solid #21262d;border-radius:12px;padding:18px;text-align:center}
+.stat-n{font-size:28px;font-weight:800}
+.stat-l{font-size:11px;color:#8b949e;margin-top:2px}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.cmd-row{background:#0b0e13;border:1px solid #21262d;border-radius:8px;padding:9px 13px;margin-bottom:6px;display:flex;gap:10px;align-items:center}
+.cmd-row code{color:#3cffa0;font-size:12px;font-family:monospace}
+.cmd-row span{color:#8b949e;font-size:11px}
+.server-card{background:#0d1117;border:1px solid #21262d;border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:14px;margin-bottom:10px;transition:border-color .15s}
+.server-card:hover{border-color:#30363d}
+.server-icon{width:44px;height:44px;border-radius:11px;flex-shrink:0;object-fit:cover}
+.server-icon-ph{width:44px;height:44px;border-radius:11px;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#e6edf3;flex-shrink:0}
+.tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;display:inline-block}
+.tag-g{background:rgba(60,255,160,.15);color:#3cffa0;border:1px solid rgba(60,255,160,.3)}
+.tag-b{background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3)}
+.section-title{font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px}
+@media(max-width:600px){.grid3{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+</style>
+"""
+
+# ─── PAGES ────────────────────────────────────────────────────────────────────
+
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory("static", filename)
+
+@app.route("/ping")
+def ping():
+    return jsonify({"status": "ok", "bot": bool(BOT_TOKEN)})
+
+@app.route("/")
 def index():
-    if'access_token'in session:return redirect('/servers')
-    return'<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RANDOOM</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:20px}.logo{font-size:52px;font-weight:800;color:#57f287}.sub{color:#8b949e;font-size:14px;margin:12px 0 32px}.btn{background:#5865f2;color:#fff;padding:14px 28px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;display:inline-block}</style></head><body><div class="logo">RANDOOM</div><div style="color:#57f287;font-size:13px;margin-top:6px">SUPPORT</div><div class="sub">Gestiona tu bot de Discord</div><a href="/login" class="btn">Iniciar sesion con Discord</a></body></html>'
+    if "access_token" in session:
+        return redirect("/servers")
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RANDOOM</title>{FAVICON_TAG}{CSS}</head>
+<body style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px">
+<div style="max-width:400px;width:100%">
+<img src="data:image/png;base64,{FAVICON_B64}" style="width:72px;height:72px;object-fit:contain;margin-bottom:20px;border-radius:16px" onerror="this.style.display='none'">
+<div class="logo" style="font-size:36px;margin-bottom:4px">RANDOOM</div>
+<div class="badge" style="margin-bottom:16px">SUPPORT</div>
+<p style="color:#8b949e;font-size:14px;margin-bottom:32px">Panel de control para tu bot de Discord.<br>Gestiona servidores, modera y personaliza desde aquí.</p>
+<a href="/login" style="display:flex;align-items:center;justify-content:center;gap:10px;background:#5865f2;color:#fff;padding:14px 28px;border-radius:12px;font-size:15px;font-weight:700;width:100%">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.04.033.052a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
+Iniciar sesión con Discord
+</a>
+</div>
+</body></html>"""
 
-@app.route('/login')
+@app.route("/login")
 def login():
-    return redirect(f'https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&scope=identify%20guilds')
+    scope = "identify%20guilds"
+    return redirect(
+        f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
+        f"&redirect_uri={REDIRECT_URI}&response_type=code&scope={scope}"
+    )
 
-@app.route('/callback')
+@app.route("/callback")
 def callback():
-    code=request.args.get('code')
-    if not code:return redirect('/')
-    r=http.post(f'{API}/oauth2/token',data={'client_id':CLIENT_ID,'client_secret':CLIENT_SECRET,'grant_type':'authorization_code','code':code,'redirect_uri':REDIRECT_URI})
-    data=r.json()
-    if'access_token'not in data:return redirect('/')
-    session['access_token']=data['access_token']
-    session['user']=http.get(f'{API}/users/@me',headers=uh()).json()
-    session['guilds']=http.get(f'{API}/users/@me/guilds',headers=uh()).json()
-    return redirect('/servers')
+    code = request.args.get("code")
+    if not code:
+        return redirect("/")
+    r = http.post(f"{API}/oauth2/token", data={
+        "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": REDIRECT_URI
+    })
+    data = r.json()
+    if "access_token" not in data:
+        return redirect("/")
+    session["access_token"] = data["access_token"]
+    session["user"] = http.get(f"{API}/users/@me", headers=uh()).json()
+    return redirect("/servers")
 
-@app.route('/logout')
+@app.route("/logout")
 def logout():
-    session.clear();return redirect('/')
+    session.clear()
+    return redirect("/")
 
-@app.route('/servers')
+@app.route("/servers")
 @require_login
 def servers():
-    user=session['user'];ug=session.get('guilds',[])
-    bot_ids={g['id'] for g in http.get(f'{API}/users/@me/guilds',headers=bh()).json()}
+    user = session["user"]
+    name = escape(user.get("global_name") or user["username"])
+    av   = user.get("avatar")
+    uid  = user["id"]
+    av_url = (
+        f"https://cdn.discordapp.com/avatars/{uid}/{av}.png?size=64"
+        if av else "https://cdn.discordapp.com/embed/avatars/0.png"
+    )
+
+    ug = http.get(f"{API}/users/@me/guilds", headers=uh()).json()
+    if not isinstance(ug, list):
+        ug = []
+    bot_r = http.get(f"{API}/users/@me/guilds", headers=bh()).json()
+    bot_ids = {g["id"] for g in bot_r} if isinstance(bot_r, list) else set()
+
+    with_bot, without_bot = [], []
     for g in ug:
-        g['bot_installed']=g['id'] in bot_ids
-        g['can_manage']=g.get('owner') or bool(int(g.get('permissions',0))&0x20)
-    wb=[g for g in ug if g['bot_installed'] and g['can_manage']]
-    wo=[g for g in ug if not g['bot_installed'] and g['can_manage']]
-    name=escape(user.get('global_name') or user['username'])
-    def gc(g,has):
-        ic=f'<img src="https://cdn.discordapp.com/icons/{g["id"]}/{g["icon"]}.png?size=64" style="width:40px;height:40px;border-radius:10px">'if g.get('icon')else f'<div style="width:40px;height:40px;border-radius:10px;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700">{g["name"][0]}</div>'
-        p=int(g.get('permissions',0));role="Propietario"if g.get('owner')else("Admin"if p&0x8 else"Gestor")
-        btn=f'<a href="/server/{g["id"]}" style="background:#57f287;color:#0d1117;padding:6px 12px;border-radius:7px;font-size:12px;font-weight:700;text-decoration:none">Gestionar</a>'if has else f'<a href="https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&scope=bot+applications.commands&permissions=8&guild_id={g["id"]}" target="_blank" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:6px 12px;border-radius:7px;font-size:12px;font-weight:700;text-decoration:none">Agregar</a>'
-        return f'<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:12px;margin-bottom:8px">{ic}<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">{escape(g["name"])}</div><div style="font-size:11px;color:#8b949e">{role}</div></div>{btn}</div>'
-    wbh=''.join(gc(g,True)for g in wb)or'<p style="color:#8b949e;font-size:13px">Ninguno</p>'
-    woh=''.join(gc(g,False)for g in wo)or'<p style="color:#8b949e;font-size:13px">Ninguno</p>'
-    return f'<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RANDOOM</title><style>*{{box-sizing:border-box;margin:0;padding:0}}body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif}}.nav{{background:#161b22;border-bottom:1px solid #30363d;padding:12px 20px;display:flex;align-items:center;gap:10px}}.wrap{{max-width:860px;margin:0 auto;padding:24px 16px}}</style></head><body><nav class="nav"><span style="font-weight:800;color:#57f287">RANDOOM</span><span style="background:#57f287;color:#0d1117;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px">SUPPORT</span><a href="/logout" style="margin-left:auto;background:#21262d;border:1px solid #30363d;padding:5px 12px;border-radius:6px;font-size:12px">Salir</a></nav><div class="wrap"><h1 style="font-size:24px;font-weight:700;margin-bottom:6px">Hola, {name} !</h1><p style="color:#8b949e;font-size:14px;margin-bottom:20px">Tus servidores</p><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px"><div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;text-align:center"><div style="font-size:26px;font-weight:700;color:#57f287">{len(wb)}</div><div style="font-size:11px;color:#8b949e">Con bot</div></div><div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;text-align:center"><div style="font-size:26px;font-weight:700;color:#8b949e">{len(wo)}</div><div style="font-size:11px;color:#8b949e">Sin bot</div></div><div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;text-align:center"><div style="font-size:26px;font-weight:700;color:#58a6ff">{len(wb)+len(wo)}</div><div style="font-size:11px;color:#8b949e">Total</div></div></div>{"<div style=font-size:11px;font-weight:600;color:#8b949e;text-transform:uppercase;margin-bottom:10px>BOT INSTALADO</div>"+wbh if wb else ""}{"<div style=font-size:11px;font-weight:600;color:#8b949e;text-transform:uppercase;margin:20px 0 10px>SIN EL BOT</div>"+woh if wo else""}</div></body></html>'@app.route('/server/<gid>')
+        perms = int(g.get("permissions", 0))
+        can_manage = g.get("owner") or bool(perms & 0x20)
+        if not can_manage:
+            continue
+        g["bot_installed"] = g["id"] in bot_ids
+        (with_bot if g["bot_installed"] else without_bot).append(g)
+
+    def server_card(g, has_bot):
+        icon_html = (
+            f'<img class="server-icon" src="https://cdn.discordapp.com/icons/{g["id"]}/{g["icon"]}.png?size=64">'
+            if g.get("icon") else
+            f'<div class="server-icon-ph">{escape(g["name"][0])}</div>'
+        )
+        perms = int(g.get("permissions", 0))
+        role = "Propietario" if g.get("owner") else ("Admin" if perms & 0x8 else "Gestor")
+        if has_bot:
+            btn = f'<a href="/server/{g["id"]}" class="btn btn-g" style="padding:7px 14px;font-size:12px">Gestionar</a>'
+        else:
+            invite = (
+                f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}"
+                f"&scope=bot+applications.commands&permissions=8&guild_id={g['id']}"
+            )
+            btn = f'<a href="{invite}" target="_blank" class="btn btn-d" style="padding:7px 14px;font-size:12px">Agregar bot</a>'
+        return f"""<div class="server-card">
+{icon_html}
+<div style="flex:1;min-width:0">
+  <div style="font-weight:700;font-size:14px">{escape(g["name"])}</div>
+  <div style="font-size:11px;color:#8b949e;margin-top:2px">{role}</div>
+</div>
+{"<span class='tag tag-g'>Bot activo</span>" if has_bot else ""}
+{btn}
+</div>"""
+
+    wb_html = "".join(server_card(g, True)  for g in with_bot)    or '<p style="color:#8b949e;font-size:13px;padding:12px 0">Ninguno aún.</p>'
+    wo_html = "".join(server_card(g, False) for g in without_bot) or '<p style="color:#8b949e;font-size:13px;padding:12px 0">Ninguno.</p>'
+
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RANDOOM — Servidores</title>{FAVICON_TAG}{CSS}</head><body>
+<nav class="nav">
+  <img src="data:image/png;base64,{FAVICON_B64}" style="width:28px;height:28px;border-radius:7px;object-fit:contain" onerror="this.style.display='none'">
+  <span class="logo">RANDOOM</span><span class="badge">SUPPORT</span>
+  <div class="nav-right">
+    <img class="avatar" src="{av_url}">
+    <span style="font-size:13px;font-weight:600">{name}</span>
+    <a href="/logout" class="btn-sm">Salir</a>
+  </div>
+</nav>
+<div class="wrap">
+  <h1 style="font-size:22px;font-weight:800;margin-bottom:6px">Hola, {name}!</h1>
+  <p style="color:#8b949e;font-size:13px;margin-bottom:24px">Selecciona un servidor para gestionarlo.</p>
+
+  <div class="grid3" style="margin-bottom:28px">
+    <div class="stat"><div class="stat-n" style="color:#3cffa0">{len(with_bot)}</div><div class="stat-l">Con bot</div></div>
+    <div class="stat"><div class="stat-n" style="color:#8b949e">{len(without_bot)}</div><div class="stat-l">Sin bot</div></div>
+    <div class="stat"><div class="stat-n" style="color:#58a6ff">{len(with_bot)+len(without_bot)}</div><div class="stat-l">Total</div></div>
+  </div>
+
+  <div class="section-title">Bot instalado</div>
+  {wb_html}
+
+  <div class="section-title" style="margin-top:24px">Sin bot — puedes agregarlo</div>
+  {wo_html}
+</div>
+</body></html>"""
+
+
+@app.route("/server/<gid>")
 @require_login
 def dashboard(gid):
-    gr=http.get(f'{API}/guilds/{gid}',headers=bh())
-    if not gr.ok:return redirect('/servers')
-    g=gr.json();gname=escape(g['name'])
-    ch=http.get(f'{API}/guilds/{gid}/channels',headers=bh())
-    channels=sorted([c for c in(ch.json()if ch.ok else[])if c['type']==0],key=lambda c:c.get('position',0))
-    ro=http.get(f'{API}/guilds/{gid}/roles',headers=bh())
-    roles=ro.json()if ro.ok else[]
-    user=session['user'];uname=escape(user.get('global_name')or user['username'])
-    copts=''.join(f'<option value="{c["id"]}">#{c["name"]}</option>'for c in channels)
-    ic=f'<img src="https://cdn.discordapp.com/icons/{gid}/{g["icon"]}.png?size=64" style="width:42px;height:42px;border-radius:10px">'if g.get('icon')else f'<div style="width:42px;height:42px;border-radius:10px;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px">{g["name"][0]}</div>'
-    cmds=[("/ping","Latencia"),("/hola","Saludo"),("/ayuda","Comandos"),("/ban @user","Banear"),("/kick @user","Expulsar"),("/timeout @user [min]","Silenciar"),("/purge [n]","Eliminar msgs"),("/dm @user [msg]","Enviar DM")]
-    ch_html=''.join(f'<div style="background:#0d1117;border:1px solid #30363d;border-radius:7px;padding:8px 12px;margin-bottom:6px;display:flex;gap:8px"><code style="color:#57f287;font-size:12px">{c[0]}</code><span style="color:#8b949e;font-size:11px">- {c[1]}</span></div>'for c in cmds)
-    return f'''<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RANDOOM - {gname}</title>
-<style>*{{box-sizing:border-box;margin:0;padding:0}}body{{background:#0d1117;color:#e6edf3;font-family:-apple-system,sans-serif}}
-.nav{{background:#161b22;border-bottom:1px solid #30363d;padding:12px 20px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:10}}
-.wrap{{max-width:860px;margin:0 auto;padding:20px 16px}}
-.tabs{{display:flex;gap:2px;border-bottom:1px solid #30363d;margin-bottom:20px;overflow-x:auto;padding-bottom:1px}}
-.tab{{padding:9px 14px;font-size:13px;font-weight:500;color:#8b949e;border-bottom:2px solid transparent;white-space:nowrap;cursor:pointer;background:none;border-top:none;border-left:none;border-right:none}}
-.tab.active{{color:#57f287;border-bottom-color:#57f287}}
-.panel{{display:none}}.panel.active{{display:block}}
-.card{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:18px;margin-bottom:14px}}
-.fg{{margin-bottom:12px}}.fg label{{display:block;font-size:11px;color:#8b949e;margin-bottom:5px}}
-select,textarea,input[type=text],input[type=number]{{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:7px;color:#e6edf3;padding:9px 11px;font-size:13px;outline:none;font-family:inherit}}
-select:focus,textarea:focus,input:focus{{border-color:#57f287}}textarea{{resize:vertical;min-height:76px}}
-.btn{{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none}}
-.bg{{background:#57f287;color:#0d1117}}.bb{{background:#58a6ff;color:#0d1117}}.br{{background:#f85149;color:#fff}}.bd{{background:#21262d;color:#e6edf3;border:1px solid #30363d}}
-.alert{{padding:9px 12px;border-radius:7px;font-size:12px;margin-bottom:12px;display:none}}
-.as{{background:rgba(87,242,135,.12);border:1px solid #57f287;color:#57f287}}.ae{{background:rgba(248,81,73,.12);border:1px solid #f85149;color:#f85149}}
-.mrow{{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid #21262d}}
-</style></head><body>
-<nav class="nav"><span style="font-weight:800;color:#57f287">RANDOOM</span><span style="background:#57f287;color:#0d1117;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px">SUPPORT</span>
-<span style="color:#8b949e;font-size:13px;margin:0 4px">/</span><span style="font-size:13px;font-weight:600">{gname}</span>
-<a href="/logout" style="margin-left:auto;background:#21262d;border:1px solid #30363d;padding:5px 12px;border-radius:6px;font-size:12px">Salir</a></nav>
-<div class="wrap"><a href="/servers" style="color:#8b949e;font-size:13px;display:inline-flex;align-items:center;gap:5px;margin-bottom:14px">&#8592; Servidores</a>
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">{ic}<div><div style="font-size:19px;font-weight:700">{gname}</div><div style="font-size:12px;color:#8b949e">{len(channels)} canales - {len(roles)} roles</div></div></div>
-<div class="tabs">
-<button class="tab" data-tab="resumen" onclick="sw('resumen')">Resumen</button>
-<button class="tab" data-tab="mensajes" onclick="sw('mensajes')">Mensajes</button>
-<button class="tab" data-tab="miembros" onclick="sw('miembros')">Miembros</button>
-<button class="tab" data-tab="moderacion" onclick="sw('moderacion')">Moderacion</button>
-<button class="tab" data-tab="bienvenidas" onclick="sw('bienvenidas')">Bienvenidas</button>
-<button class="tab" data-tab="purge" onclick="sw('purge')">Purge</button>
+    gr = http.get(f"{API}/guilds/{gid}", headers=bh())
+    if not gr.ok:
+        return redirect("/servers")
+    g     = gr.json()
+    gname = escape(g["name"])
+
+    ch_r = http.get(f"{API}/guilds/{gid}/channels", headers=bh())
+    channels = sorted(
+        [c for c in (ch_r.json() if ch_r.ok else []) if c["type"] == 0],
+        key=lambda c: c.get("position", 0)
+    )
+    ro_r  = http.get(f"{API}/guilds/{gid}/roles", headers=bh())
+    roles = ro_r.json() if ro_r.ok else []
+
+    user  = session["user"]
+    uname = escape(user.get("global_name") or user["username"])
+    uid   = user["id"]
+    av    = user.get("avatar")
+    av_url = (
+        f"https://cdn.discordapp.com/avatars/{uid}/{av}.png?size=64"
+        if av else "https://cdn.discordapp.com/embed/avatars/0.png"
+    )
+
+    ic = (
+        f'<img src="https://cdn.discordapp.com/icons/{gid}/{g["icon"]}.png?size=128" style="width:48px;height:48px;border-radius:12px">'
+        if g.get("icon") else
+        f'<div style="width:48px;height:48px;border-radius:12px;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px">{gname[0]}</div>'
+    )
+
+    copts  = "".join(f'<option value="{c["id"]}">#{escape(c["name"])}</option>' for c in channels)
+    ropts  = "".join(
+        f'<option value="{r["id"]}">@{escape(r["name"])}</option>'
+        for r in sorted(roles, key=lambda r: -r.get("position", 0))
+        if r["name"] != "@everyone"
+    )
+
+    gid_s          = str(gid)
+    verify_cfg     = verify_configs.get(gid_s, {})
+    logs_cfg       = logs_configs.get(gid_s, {})
+    verify_ch_sel  = verify_cfg.get("channel_id", "")
+    verify_role_sel= verify_cfg.get("role_id", "")
+    verify_msg_val = escape(verify_cfg.get("message", ""))
+    logs_ch_sel    = logs_cfg.get("channel_id", "")
+
+    def copts_selected(sel_id):
+        return "".join(
+            f'<option value="{c["id"]}"{"selected" if c["id"]==sel_id else ""}>#{escape(c["name"])}</option>'
+            for c in channels
+        )
+    def ropts_selected(sel_id):
+        return "".join(
+            f'<option value="{r["id"]}"{"selected" if r["id"]==sel_id else ""}>@{escape(r["name"])}</option>'
+            for r in sorted(roles, key=lambda r: -r.get("position", 0))
+            if r["name"] != "@everyone"
+        )
+
+    all_cmds = [
+        ("/ping",                         "Latencia del bot"),
+        ("/hola",                         "El bot te saluda"),
+        ("/ayuda",                        "Lista de comandos"),
+        ("/purge [cantidad]",             "Eliminar mensajes (1-100)"),
+        ("/kick @usuario [razón]",        "Expulsar miembro"),
+        ("/ban @usuario [razón]",         "Banear miembro"),
+        ("/mute @usuario [minutos]",      "Silenciar miembro"),
+        ("/bienvenida #canal [msg]",      "Configurar bienvenidas"),
+        ("/setverify #canal @rol [msg]",  "Configurar verificación con botón"),
+        ("/quitarverify",                 "Desactivar verificación"),
+        ("/setlogs #canal",               "Canal de logs de moderación"),
+        ("/quitarlogs",                   "Desactivar logs"),
+        ("/mensaje #canal [texto]",       "Enviar mensaje como bot"),
+        ("/embed #canal ...",             "Enviar embed"),
+        ("/imagen #canal [url]",          "Enviar imagen desde URL"),
+        ("/embed_imagen #canal ...",      "Embed completo con imagen y footer"),
+    ]
+    cmds_html = "".join(
+        f'<div class="cmd-row"><code>{c[0]}</code><span>— {c[1]}</span></div>'
+        for c in all_cmds
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RANDOOM — {gname}</title>{FAVICON_TAG}{CSS}</head><body>
+<nav class="nav">
+  <img src="data:image/png;base64,{FAVICON_B64}" style="width:28px;height:28px;border-radius:7px;object-fit:contain" onerror="this.style.display='none'">
+  <span class="logo">RANDOOM</span><span class="badge">SUPPORT</span>
+  <span style="color:#30363d;margin:0 4px">›</span>
+  <span style="font-size:13px;font-weight:700">{gname}</span>
+  <div class="nav-right">
+    <img class="avatar" src="{av_url}">
+    <a href="/servers" class="btn-sm">Servidores</a>
+    <a href="/logout" class="btn-sm">Salir</a>
+  </div>
+</nav>
+<div class="wrap">
+  <a href="/servers" style="color:#8b949e;font-size:13px;display:inline-flex;align-items:center;gap:5px;margin-bottom:18px">← Volver</a>
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px">
+    {ic}
+    <div>
+      <div style="font-size:20px;font-weight:800">{gname}</div>
+      <div style="font-size:12px;color:#8b949e;margin-top:2px">{len(channels)} canales · {len(roles)} roles</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="resumen"    onclick="sw(this,'resumen')">📊 Resumen</button>
+    <button class="tab"        data-tab="mensajes"   onclick="sw(this,'mensajes')">💬 Mensajes</button>
+    <button class="tab"        data-tab="embeds"     onclick="sw(this,'embeds')">🖼️ Embeds</button>
+    <button class="tab"        data-tab="moderacion" onclick="sw(this,'moderacion')">🛡️ Moderación</button>
+    <button class="tab"        data-tab="purge"      onclick="sw(this,'purge')">🗑️ Purge</button>
+    <button class="tab"        data-tab="bienvenidas" onclick="sw(this,'bienvenidas')">👋 Bienvenidas</button>
+    <button class="tab"        data-tab="verificacion" onclick="sw(this,'verificacion')">🔐 Verificación</button>
+    <button class="tab"        data-tab="logs"         onclick="sw(this,'logs')">📋 Logs</button>
+    <button class="tab"        data-tab="miembros"   onclick="sw(this,'miembros')">👥 Miembros</button>
+  </div>
+
+  <!-- RESUMEN -->
+  <div id="p-resumen" class="panel active">
+    <div class="grid2">
+      <div class="stat"><div class="stat-n" style="color:#3cffa0">{len(channels)}</div><div class="stat-l">Canales de texto</div></div>
+      <div class="stat"><div class="stat-n" style="color:#58a6ff">{len(roles)}</div><div class="stat-l">Roles</div></div>
+    </div>
+    <div class="card">
+      <h3>Comandos slash disponibles</h3>
+      <p>Estos comandos funcionan directamente en Discord.</p>
+      {cmds_html}
+    </div>
+  </div>
+
+  <!-- MENSAJES -->
+  <div id="p-mensajes" class="panel">
+    <div id="al-msg" class="alert"></div>
+    <div class="card">
+      <h3>Enviar mensaje</h3>
+      <p>El bot envía el texto al canal elegido.</p>
+      <div class="fg"><label>Canal</label>
+        <select id="msg-ch"><option value="">Selecciona un canal...</option>{copts}</select></div>
+      <div class="fg"><label>Mensaje</label>
+        <textarea id="msg-txt" maxlength="2000" placeholder="Escribe aquí..."></textarea></div>
+      <button class="btn btn-g" onclick="sendMsg()">Enviar mensaje</button>
+    </div>
+  </div>
+
+  <!-- EMBEDS -->
+  <div id="p-embeds" class="panel">
+    <div id="al-emb" class="alert"></div>
+
+    <div class="card">
+      <h3>Embed simple</h3>
+      <p>Embed con título, descripción, color y footer opcional.</p>
+      <div class="grid2">
+        <div class="fg"><label>Canal</label>
+          <select id="e-ch"><option value="">Canal...</option>{copts}</select></div>
+        <div class="fg"><label>Color</label>
+          <input type="color" id="e-col" value="#3cffa0"></div>
+      </div>
+      <div class="fg"><label>Título</label>
+        <input type="text" id="e-title" placeholder="Título del embed"></div>
+      <div class="fg"><label>Descripción</label>
+        <textarea id="e-desc" placeholder="Descripción o contenido..."></textarea></div>
+      <div class="fg"><label>Footer (opcional)</label>
+        <input type="text" id="e-foot" placeholder="Texto del footer"></div>
+      <button class="btn btn-g" onclick="sendEmbed()">Enviar embed</button>
+    </div>
+
+    <div class="card">
+      <h3>Enviar imagen desde URL</h3>
+      <p>Muestra una imagen en el canal usando una URL directa.</p>
+      <div class="fg"><label>Canal</label>
+        <select id="img-ch"><option value="">Canal...</option>{copts}</select></div>
+      <div class="fg"><label>URL de la imagen</label>
+        <input type="text" id="img-url" placeholder="https://ejemplo.com/imagen.png"></div>
+      <div class="fg"><label>Título (opcional)</label>
+        <input type="text" id="img-title" placeholder="Título encima de la imagen"></div>
+      <button class="btn btn-b" onclick="sendImagen()">Enviar imagen</button>
+    </div>
+
+    <div class="card">
+      <h3>Embed completo con imagen y footer</h3>
+      <p>Embed con título, descripción, imagen desde URL, footer y color personalizados.</p>
+      <div class="grid2">
+        <div class="fg"><label>Canal</label>
+          <select id="ei-ch"><option value="">Canal...</option>{copts}</select></div>
+        <div class="fg"><label>Color</label>
+          <input type="color" id="ei-col" value="#3cffa0"></div>
+      </div>
+      <div class="fg"><label>Título</label>
+        <input type="text" id="ei-title" placeholder="Título del embed"></div>
+      <div class="fg"><label>Descripción</label>
+        <textarea id="ei-desc" placeholder="Descripción o contenido..."></textarea></div>
+      <div class="fg"><label>URL de la imagen</label>
+        <input type="text" id="ei-url" placeholder="https://ejemplo.com/imagen.png"></div>
+      <div class="fg"><label>Footer (opcional)</label>
+        <input type="text" id="ei-foot" placeholder="Texto del footer"></div>
+      <button class="btn btn-g" onclick="sendEmbedImagen()">Enviar embed con imagen</button>
+    </div>
+  </div>
+
+  <!-- MODERACIÓN -->
+  <div id="p-moderacion" class="panel">
+    <div id="al-mod" class="alert"></div>
+    <div class="card">
+      <h3>Moderación de miembros</h3>
+      <p>Ban, kick y silencio. Carga la lista para actuar.</p>
+      <div id="mod-list"><button class="btn btn-d" onclick="loadModMembers()">Cargar miembros</button></div>
+    </div>
+  </div>
+
+  <!-- PURGE -->
+  <div id="p-purge" class="panel">
+    <div id="al-purge" class="alert"></div>
+    <div class="card">
+      <h3>Purge — eliminar mensajes</h3>
+      <p>Borra en masa mensajes recientes de un canal (máximo 100).</p>
+      <div class="fg"><label>Canal</label>
+        <select id="pu-ch"><option value="">Selecciona un canal...</option>{copts}</select></div>
+      <div class="fg"><label>Cantidad de mensajes</label>
+        <input type="number" id="pu-amt" value="10" min="1" max="100"></div>
+      <button class="btn btn-r" onclick="doPurge('{gid}')">🗑️ Eliminar mensajes</button>
+    </div>
+  </div>
+
+  <!-- BIENVENIDAS -->
+  <div id="p-bienvenidas" class="panel">
+    <div id="al-wel" class="alert"></div>
+    <div class="card">
+      <h3>Configurar bienvenida automática</h3>
+      <p>Cuando alguien entra al servidor, el bot lo saluda. Usa <code style="color:#3cffa0">{{user}}</code> para mencionar al nuevo miembro.</p>
+      <div class="fg"><label>Canal de bienvenida</label>
+        <select id="wel-ch"><option value="">Selecciona un canal...</option>{copts}</select></div>
+      <div class="fg"><label>Mensaje en el canal</label>
+        <textarea id="wel-msg" placeholder="¡Bienvenido {{user}} al servidor!"></textarea></div>
+      <div class="fg"><label>DM privado al nuevo miembro (opcional)</label>
+        <textarea id="wel-dm" placeholder="Hola {{user}}, gracias por unirte!"></textarea></div>
+      <button class="btn btn-g" onclick="saveWelcome('{gid}')">💾 Guardar bienvenida</button>
+    </div>
+  </div>
+
+  <!-- VERIFICACIÓN -->
+  <div id="p-verificacion" class="panel">
+    <div id="al-verify" class="alert"></div>
+    <div class="card">
+      <h3>🔐 Verificación con botón</h3>
+      <p>El bot envía un embed con un botón "✅ Verificarme" en el canal elegido. Al pulsarlo, el usuario recibe el rol automáticamente.</p>
+      <div class="grid2">
+        <div class="fg"><label>Canal de verificación</label>
+          <select id="ver-ch"><option value="">Selecciona un canal...</option>{copts_selected(verify_ch_sel)}</select></div>
+        <div class="fg"><label>Rol a asignar</label>
+          <select id="ver-rol"><option value="">Selecciona un rol...</option>{ropts_selected(verify_role_sel)}</select></div>
+      </div>
+      <div class="fg"><label>Mensaje del embed</label>
+        <textarea id="ver-msg" placeholder="Haz clic en el botón para verificarte y acceder al servidor.">{verify_msg_val}</textarea></div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn btn-g" onclick="saveVerify('{gid}')">💾 Guardar y enviar botón</button>
+        {"<button class='btn btn-r' onclick='delVerify(`" + gid + "`)'>🗑️ Desactivar</button>" if verify_cfg else ""}
+      </div>
+      {f'<p style="margin-top:14px;font-size:12px;color:#3cffa0">✅ Configurado — Canal: <b>{verify_ch_sel}</b> · Rol: <b>{verify_role_sel}</b></p>' if verify_cfg else '<p style="margin-top:14px;font-size:12px;color:#8b949e">Sin configurar.</p>'}
+    </div>
+  </div>
+
+  <!-- LOGS -->
+  <div id="p-logs" class="panel">
+    <div id="al-logs" class="alert"></div>
+    <div class="card">
+      <h3>📋 Canal de logs de moderación</h3>
+      <p>Cada ban, kick, mute, purge y verificación genera un embed de registro en este canal con el moderador, el usuario afectado y la razón.</p>
+      <div class="fg"><label>Canal de logs</label>
+        <select id="log-ch"><option value="">Selecciona un canal...</option>{copts_selected(logs_ch_sel)}</select></div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn btn-g" onclick="saveLogs('{gid}')">💾 Guardar canal</button>
+        {"<button class='btn btn-r' onclick='delLogs(`" + gid + "`)'>🗑️ Desactivar</button>" if logs_cfg else ""}
+      </div>
+      {f'<p style="margin-top:14px;font-size:12px;color:#3cffa0">✅ Canal configurado: <b>{logs_ch_sel}</b></p>' if logs_cfg else '<p style="margin-top:14px;font-size:12px;color:#8b949e">Sin configurar.</p>'}
+      <div style="margin-top:16px;padding:12px 14px;background:#161b22;border-radius:8px;font-size:12px;color:#8b949e">
+        <b style="color:#e6edf3">Se registran:</b>&nbsp;
+        🔨 Bans &nbsp;·&nbsp; 👢 Kicks &nbsp;·&nbsp; 🔇 Mutes &nbsp;·&nbsp; 🗑️ Purges &nbsp;·&nbsp; ✅ Verificaciones
+      </div>
+    </div>
+  </div>
+
+  <!-- MIEMBROS / DMs -->
+  <div id="p-miembros" class="panel">
+    <div id="al-dm" class="alert"></div>
+    <div class="card">
+      <h3>Enviar DM a miembros</h3>
+      <p>Envía mensajes directos a cualquier miembro desde aquí.</p>
+      <div id="dm-list"><button class="btn btn-d" onclick="loadDmMembers()">Cargar miembros</button></div>
+    </div>
+  </div>
 </div>
-<div id="p-resumen" class="panel"><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px"><div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px"><div style="font-size:26px;font-weight:700;color:#57f287">{len(channels)}</div><div style="font-size:11px;color:#8b949e">Canales</div></div><div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px"><div style="font-size:26px;font-weight:700;color:#58a6ff">{len(roles)}</div><div style="font-size:11px;color:#8b949e">Roles</div></div></div><div class="card"><h3 style="font-size:15px;font-weight:600;margin-bottom:12px">Comandos slash de Discord</h3>{ch_html}</div></div>
-<div id="p-mensajes" class="panel"><div id="ma" class="alert"></div><div id="ea" class="alert"></div>
-<div class="card"><h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Enviar mensaje</h3><p style="font-size:12px;color:#8b949e;margin-bottom:14px">El bot envia el mensaje al canal elegido.</p>
-<div class="fg"><label>Canal</label><select id="mc"><option value="">Selecciona...</option>{copts}</select></div>
-<div class="fg"><label>Mensaje</label><textarea id="mt" maxlength="2000" placeholder="Escribe aqui..."></textarea></div>
-<button class="btn bg" onclick="sendMsg()">Enviar</button></div>
-<div class="card"><h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Enviar embed</h3><p style="font-size:12px;color:#8b949e;margin-bottom:14px">Mensaje con formato visual.</p>
-<div class="fg"><label>Canal</label><select id="ec"><option value="">Selecciona...</option>{copts}</select></div>
-<div class="fg"><label>Titulo</label><input type="text" id="et" placeholder="Titulo del embed"></div>
-<div class="fg"><label>Descripcion</label><textarea id="ed" placeholder="Descripcion..."></textarea></div>
-<div class="fg"><label>Color</label><input type="color" id="ecol" value="#57f287"></div>
-<button class="btn bg" onclick="sendEmbed()">Enviar embed</button></div></div>
-<div id="p-miembros" class="panel"><div id="mbal" class="alert"></div><div class="card"><h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Miembros</h3><p style="font-size:12px;color:#8b949e;margin-bottom:14px">Envia DMs a cualquier miembro.</p><div id="mbl"><div style="color:#8b949e;font-size:13px;padding:20px;text-align:center">Cargando...</div></div></div></div>
-<div id="p-moderacion" class="panel"><div id="modal" class="alert"></div><div class="card"><h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Moderacion</h3><p style="font-size:12px;color:#8b949e;margin-bottom:14px">Ban, kick y timeout de miembros.</p><div id="moml"><div style="color:#8b949e;font-size:13px;padding:20px;text-align:center">Cargando...</div></div></div></div>
-<div id="p-bienvenidas" class="panel"><div id="weal" class="alert"></div><div class="card"><h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Bienvenida</h3><p style="font-size:12px;color:#8b949e;margin-bottom:14px">Usa {{user}} para mencionar al nuevo miembro.</p>
-<div class="fg"><label>Canal</label><select id="wc"><option value="">Selecciona...</option>{copts}</select></div>
-<div class="fg"><label>Mensaje en el canal</label><textarea id="wm" placeholder="Bienvenido {{user}}!"></textarea></div>
-<div class="fg"><label>DM al nuevo miembro (opcional)</label><textarea id="wd" placeholder="Hola {{user}}!"></textarea></div>
-<button class="btn bg" onclick="saveWelcome('{gid}')">Guardar</button></div></div>
-<div id="p-purge" class="panel"><div id="pural" class="alert"></div><div class="card"><h3 style="font-size:15px;font-weight:600;margin-bottom:4px">Purge</h3><p style="font-size:12px;color:#8b949e;margin-bottom:14px">Elimina mensajes del canal (max 100).</p>
-<div class="fg"><label>Canal</label><select id="pc"><option value="">Selecciona...</option>{copts}</select></div>
-<div class="fg"><label>Cantidad</label><input type="number" id="pa" value="10" min="1" max="100"></div>
-<button class="btn br" onclick="doPurge('{gid}')">Eliminar</button></div></div>
-</div>
+
 <script>
-const GID="{gid}";
-function show(id,msg,t){{const e=document.getElementById(id);e.textContent=msg;e.className='alert '+(t==='ok'?'as':'ae');e.style.display='block';setTimeout(()=>e.style.display='none',4000)}}
-async function post(url,d){{const r=await fetch(url,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});return r.json()}}
-function sw(n){{document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===n));document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='p-'+n))}}
-async function sendMsg(){{const ch=document.getElementById('mc').value,ct=document.getElementById('mt').value;if(!ch||!ct)return show('ma','Selecciona canal y escribe mensaje','err');const r=await post('/api/msg',{{channel_id:ch,content:ct}});show('ma',r.ok?'Mensaje enviado!':'Error',r.ok?'ok':'err')}}
-async function sendEmbed(){{const ch=document.getElementById('ec').value,title=document.getElementById('et').value,desc=document.getElementById('ed').value,color=parseInt(document.getElementById('ecol').value.replace('#',''),16);if(!ch)return show('ea','Selecciona canal','err');const r=await post('/api/embed',{{channel_id:ch,title,description:desc,color}});show('ea',r.ok?'Embed enviado!':'Error',r.ok?'ok':'err')}}
-async function sendDm(uid,name){{const ct=document.getElementById('dm'+uid).value;if(!ct)return;const r=await post('/api/dm',{{user_id:uid,content:ct}});show('mbal',r.ok?'DM enviado a '+name:'Error',r.ok?'ok':'err');document.getElementById('dm'+uid).value=''}}
-async function doBan(uid,name){{if(!confirm('Banear a '+name+'?'))return;const reason=prompt('Razon:','')||'Sin razon';const r=await post('/api/ban',{{guild_id:GID,user_id:uid,reason}});show('modal',r.ok?name+' baneado':'Error',r.ok?'ok':'err');if(r.ok)document.getElementById('mr'+uid)?.remove()}}
-async function doKick(uid,name){{if(!confirm('Expulsar a '+name+'?'))return;const r=await post('/api/kick',{{guild_id:GID,user_id:uid}});show('modal',r.ok?name+' expulsado':'Error',r.ok?'ok':'err');if(r.ok)document.getElementById('mr'+uid)?.remove()}}
-async function doTimeout(uid,name){{const m=prompt('Minutos para '+name+'?','10');if(!m)return;const r=await post('/api/timeout',{{guild_id:GID,user_id:uid,minutes:parseInt(m)}});show('modal',r.ok?name+' silenciado '+m+' min':'Error',r.ok?'ok':'err')}}
-async function doPurge(gid){{const ch=document.getElementById('pc').value,am=document.getElementById('pa').value;if(!ch)return show('pural','Selecciona canal','err');const r=await post('/api/purge',{{channel_id:ch,amount:parseInt(am)}});show('pural',r.ok?r.deleted+' mensajes eliminados':'Error',r.ok?'ok':'err')}}
-async function saveWelcome(gid){{const ch=document.getElementById('wc').value,msg=document.getElementById('wm').value,dm=document.getElementById('wd').value;const r=await post('/api/welcome',{{guild_id:gid,channel_id:ch,message:msg,dm_message:dm}});show('weal',r.ok?'Guardado!':'Error',r.ok?'ok':'err')}}
-async function loadMembers(){{const r=await fetch('/api/members/'+GID);const ms=await r.json();let mb='',mo='';ms.forEach(m=>{{const u=m.user;if(u.bot)return;const nick=m.nick||u.global_name||u.username;const av=u.avatar?`<img src="https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png" style="width:34px;height:34px;border-radius:50%">`:`<div style="width:34px;height:34px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700">${{u.username[0]}}</div>`;mb+=`<div class="mrow" id="mr${{u.id}}"><div>${{av}}</div><div style="flex:1;min-width:0;padding:0 4px"><div style="font-size:13px;font-weight:500">${{nick}}</div></div><button class="btn bb" style="padding:4px 8px;font-size:11px" onclick="let d=document.getElementById('da${{u.id}}');d.style.display=d.style.display==='none'?'flex':'none'">DM</button></div><div id="da${{u.id}}" style="display:none;padding:6px 0 10px;gap:6px;flex-wrap:wrap"><input type="text" id="dm${{u.id}}" placeholder="DM a ${{nick}}..." style="flex:1;min-width:140px"><button class="btn bb" style="font-size:11px;padding:5px 10px" onclick="sendDm('${{u.id}}','${{nick}}')">Enviar</button></div>`;
+const GID = "{gid}";
+
+function show(id, msg, ok) {{
+  const e = document.getElementById(id);
+  e.textContent = msg;
+  e.className = "alert " + (ok ? "alert-ok" : "alert-err");
+  e.style.display = "block";
+  setTimeout(() => e.style.display = "none", 4500);
+}}
+
+async function post(url, data) {{
+  const r = await fetch(url, {{
+    method: "POST",
+    headers: {{"Content-Type": "application/json"}},
+    body: JSON.stringify(data)
+  }});
+  return r.json();
+}}
+
+function sw(btn, name) {{
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById("p-" + name).classList.add("active");
+}}
+
+// ── Mensajes ──
+async function sendMsg() {{
+  const ch = document.getElementById("msg-ch").value;
+  const txt = document.getElementById("msg-txt").value.trim();
+  if (!ch || !txt) return show("al-msg", "Selecciona canal y escribe el mensaje.", false);
+  const r = await post("/api/msg", {{channel_id: ch, content: txt}});
+  show("al-msg", r.ok ? "✅ Mensaje enviado!" : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+// ── Embeds ──
+async function sendEmbed() {{
+  const ch    = document.getElementById("e-ch").value;
+  const title = document.getElementById("e-title").value.trim();
+  const desc  = document.getElementById("e-desc").value.trim();
+  const color = parseInt(document.getElementById("e-col").value.replace("#",""), 16);
+  const foot  = document.getElementById("e-foot").value.trim();
+  if (!ch) return show("al-emb", "Selecciona un canal.", false);
+  const r = await post("/api/embed", {{channel_id: ch, title, description: desc, color, footer: foot}});
+  show("al-emb", r.ok ? "✅ Embed enviado!" : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+async function sendImagen() {{
+  const ch    = document.getElementById("img-ch").value;
+  const url   = document.getElementById("img-url").value.trim();
+  const title = document.getElementById("img-title").value.trim();
+  if (!ch || !url) return show("al-emb", "Selecciona canal y escribe la URL.", false);
+  const r = await post("/api/imagen", {{channel_id: ch, url, title}});
+  show("al-emb", r.ok ? "✅ Imagen enviada!" : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+async function sendEmbedImagen() {{
+  const ch    = document.getElementById("ei-ch").value;
+  const title = document.getElementById("ei-title").value.trim();
+  const desc  = document.getElementById("ei-desc").value.trim();
+  const url   = document.getElementById("ei-url").value.trim();
+  const foot  = document.getElementById("ei-foot").value.trim();
+  const color = parseInt(document.getElementById("ei-col").value.replace("#",""), 16);
+  if (!ch || !url) return show("al-emb", "Selecciona canal y escribe la URL de la imagen.", false);
+  const r = await post("/api/embed_imagen", {{channel_id: ch, title, description: desc, image_url: url, footer: foot, color}});
+  show("al-emb", r.ok ? "✅ Embed con imagen enviado!" : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+// ── Moderación ──
+async function loadModMembers() {{
+  document.getElementById("mod-list").innerHTML = '<p style="color:#8b949e;font-size:13px;padding:12px 0">Cargando...</p>';
+  const r = await fetch("/api/members/" + GID);
+  const ms = await r.json();
+  if (!Array.isArray(ms) || ms.length === 0) {{
+    document.getElementById("mod-list").innerHTML = '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
+    return;
+  }}
+  let html = "";
+  ms.forEach(m => {{
+    const u = m.user;
+    if (u.bot) return;
+    const nick = escape(m.nick || u.global_name || u.username);
+    const av = u.avatar
+      ? `<img src="https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
+      : `<div style="width:36px;height:36px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700">${{u.username[0]}}</div>`;
+    html += `<div class="mrow" id="mr${{u.id}}">
+      ${{av}}
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${{nick}}</div><div style="font-size:11px;color:#8b949e">${{u.username}}</div></div>
+      <button class="btn btn-r" style="padding:5px 10px;font-size:11px" onclick="doBan('${{u.id}}','${{nick}}')">Ban</button>
+      <button class="btn btn-y" style="padding:5px 10px;font-size:11px;margin-left:4px" onclick="doKick('${{u.id}}','${{nick}}')">Kick</button>
+      <button class="btn btn-d" style="padding:5px 10px;font-size:11px;margin-left:4px" onclick="doMute('${{u.id}}','${{nick}}')">Mute</button>
+    </div>`;
+  }});
+  document.getElementById("mod-list").innerHTML = html || '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
+}}
+
+async function doBan(uid, name) {{
+  if (!confirm("¿Banear a " + name + "?")) return;
+  const reason = prompt("Razón:", "") || "Sin razón";
+  const r = await post("/api/ban", {{guild_id: GID, user_id: uid, reason}});
+  show("al-mod", r.ok ? "🔨 " + name + " baneado." : "❌ Error: " + (r.error||""), r.ok);
+  if (r.ok) document.getElementById("mr" + uid)?.remove();
+}}
+
+async function doKick(uid, name) {{
+  if (!confirm("¿Expulsar a " + name + "?")) return;
+  const reason = prompt("Razón:", "") || "Sin razón";
+  const r = await post("/api/kick", {{guild_id: GID, user_id: uid, reason}});
+  show("al-mod", r.ok ? "👢 " + name + " expulsado." : "❌ Error: " + (r.error||""), r.ok);
+  if (r.ok) document.getElementById("mr" + uid)?.remove();
+}}
+
+async function doMute(uid, name) {{
+  const mins = prompt("¿Cuántos minutos silenciar a " + name + "?", "10");
+  if (!mins) return;
+  const r = await post("/api/timeout", {{guild_id: GID, user_id: uid, minutes: parseInt(mins)}});
+  show("al-mod", r.ok ? "🔇 " + name + " silenciado " + mins + " min." : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+// ── Purge ──
+async function doPurge(gid) {{
+  const ch  = document.getElementById("pu-ch").value;
+  const amt = parseInt(document.getElementById("pu-amt").value);
+  if (!ch) return show("al-purge", "Selecciona un canal.", false);
+  if (!confirm("¿Eliminar " + amt + " mensajes en ese canal?")) return;
+  const r = await post("/api/purge", {{channel_id: ch, amount: amt}});
+  show("al-purge", r.ok ? "✅ " + r.deleted + " mensajes eliminados." : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+// ── Bienvenidas ──
+async function saveWelcome(gid) {{
+  const ch  = document.getElementById("wel-ch").value;
+  const msg = document.getElementById("wel-msg").value.trim();
+  const dm  = document.getElementById("wel-dm").value.trim();
+  if (!ch || !msg) return show("al-wel", "Selecciona canal y escribe el mensaje.", false);
+  const r = await post("/api/welcome", {{guild_id: gid, channel_id: ch, message: msg, dm_message: dm}});
+  show("al-wel", r.ok ? "✅ Bienvenida guardada!" : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+// ── Verificación ──
+async function saveVerify(gid) {{
+  const ch  = document.getElementById("ver-ch").value;
+  const rol = document.getElementById("ver-rol").value;
+  const msg = document.getElementById("ver-msg").value.trim();
+  if (!ch || !rol) return show("al-verify", "Selecciona canal y rol.", false);
+  const r = await post("/api/setverify", {{guild_id: gid, channel_id: ch, role_id: rol, message: msg}});
+  show("al-verify", r.ok ? "✅ Verificación configurada. Se envió el botón al canal." : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+async function delVerify(gid) {{
+  if (!confirm("¿Desactivar el sistema de verificación?")) return;
+  const r = await post("/api/quitarverify", {{guild_id: gid}});
+  show("al-verify", r.ok ? "✅ Verificación desactivada." : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+// ── Logs ──
+async function saveLogs(gid) {{
+  const ch = document.getElementById("log-ch").value;
+  if (!ch) return show("al-logs", "Selecciona un canal.", false);
+  const r = await post("/api/setlogs", {{guild_id: gid, channel_id: ch}});
+  show("al-logs", r.ok ? "✅ Canal de logs guardado." : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+async function delLogs(gid) {{
+  if (!confirm("¿Desactivar los logs de moderación?")) return;
+  const r = await post("/api/quitarlogs", {{guild_id: gid}});
+  show("al-logs", r.ok ? "✅ Logs desactivados." : "❌ Error: " + (r.error||""), r.ok);
+}}
+
+// ── DMs ──
+async function loadDmMembers() {{
+  document.getElementById("dm-list").innerHTML = '<p style="color:#8b949e;font-size:13px;padding:12px 0">Cargando...</p>';
+  const r = await fetch("/api/members/" + GID);
+  const ms = await r.json();
+  if (!Array.isArray(ms) || ms.length === 0) {{
+    document.getElementById("dm-list").innerHTML = '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
+    return;
+  }}
+  let html = "";
+  ms.forEach(m => {{
+    const u = m.user;
+    if (u.bot) return;
+    const nick = escape(m.nick || u.global_name || u.username);
+    const av = u.avatar
+      ? `<img src="https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
+      : `<div style="width:36px;height:36px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700">${{u.username[0]}}</div>`;
+    html += `<div class="mrow">
+      ${{av}}
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${{nick}}</div></div>
+      <input type="text" id="dmi${{u.id}}" placeholder="Mensaje..." style="width:180px;margin-right:6px">
+      <button class="btn btn-b" style="padding:5px 10px;font-size:11px" onclick="sendDm('${{u.id}}','${{nick}}')">DM</button>
+    </div>`;
+  }});
+  document.getElementById("dm-list").innerHTML = html || '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
+}}
+
+async function sendDm(uid, name) {{
+  const txt = document.getElementById("dmi" + uid)?.value.trim();
+  if (!txt) return;
+  const r = await post("/api/dm", {{user_id: uid, content: txt}});
+  show("al-dm", r.ok ? "✅ DM enviado a " + name : "❌ Error: " + (r.error||""), r.ok);
+  if (r.ok && document.getElementById("dmi" + uid)) document.getElementById("dmi" + uid).value = "";
+}}
+
+function escape(s) {{ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }}
+</script>
+</body></html>"""
+
+
+# ─── API ENDPOINTS ────────────────────────────────────────────────────────────
+
+@app.route("/api/msg", methods=["POST"])
+@require_login
+def api_msg():
+    d = request.json
+    r = http.post(f"{API}/channels/{d['channel_id']}/messages",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json={"content": d["content"]})
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/embed", methods=["POST"])
+@require_login
+def api_embed():
+    d = request.json
+    embed = {"title": d.get("title",""), "description": d.get("description",""),
+             "color": d.get("color", 0x3CFFA0)}
+    if d.get("footer"):
+        embed["footer"] = {"text": d["footer"]}
+    r = http.post(f"{API}/channels/{d['channel_id']}/messages",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json={"embeds": [embed]})
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/imagen", methods=["POST"])
+@require_login
+def api_imagen():
+    d = request.json
+    embed = {"color": 0x3CFFA0, "image": {"url": d["url"]}}
+    if d.get("title"):
+        embed["title"] = d["title"]
+    r = http.post(f"{API}/channels/{d['channel_id']}/messages",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json={"embeds": [embed]})
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/embed_imagen", methods=["POST"])
+@require_login
+def api_embed_imagen():
+    d = request.json
+    embed = {
+        "title":       d.get("title",""),
+        "description": d.get("description",""),
+        "color":       d.get("color", 0x3CFFA0),
+        "image":       {"url": d["image_url"]}
+    }
+    if d.get("footer"):
+        embed["footer"] = {"text": d["footer"]}
+    r = http.post(f"{API}/channels/{d['channel_id']}/messages",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json={"embeds": [embed]})
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/dm", methods=["POST"])
+@require_login
+def api_dm():
+    d = request.json
+    ch = http.post(f"{API}/users/@me/channels",
+                   headers={**bh(), "Content-Type": "application/json"},
+                   json={"recipient_id": d["user_id"]})
+    if not ch.ok:
+        return jsonify({"ok": False, "error": "No se pudo abrir DM"})
+    cid = ch.json()["id"]
+    r = http.post(f"{API}/channels/{cid}/messages",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json={"content": d["content"]})
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/ban", methods=["POST"])
+@require_login
+def api_ban():
+    d = request.json
+    r = http.put(f"{API}/guilds/{d['guild_id']}/bans/{d['user_id']}",
+                 headers={**bh(), "Content-Type": "application/json"},
+                 json={"delete_message_days": 0, "reason": d.get("reason","Sin razón")})
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/kick", methods=["POST"])
+@require_login
+def api_kick():
+    d = request.json
+    r = http.delete(f"{API}/guilds/{d['guild_id']}/members/{d['user_id']}",
+                    headers=bh())
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/timeout", methods=["POST"])
+@require_login
+def api_timeout():
+    d = request.json
+    until = (datetime.now(timezone.utc) + timedelta(minutes=int(d.get("minutes", 10)))).isoformat()
+    r = http.patch(f"{API}/guilds/{d['guild_id']}/members/{d['user_id']}",
+                   headers={**bh(), "Content-Type": "application/json"},
+                   json={"communication_disabled_until": until})
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/purge", methods=["POST"])
+@require_login
+def api_purge():
+    d      = request.json
+    amount = min(int(d.get("amount", 10)), 100)
+    msgs_r = http.get(f"{API}/channels/{d['channel_id']}/messages?limit={amount}", headers=bh())
+    if not msgs_r.ok:
+        return jsonify({"ok": False, "error": "No se pudieron obtener mensajes"})
+    ids = [m["id"] for m in msgs_r.json()]
+    if not ids:
+        return jsonify({"ok": True, "deleted": 0})
+    if len(ids) == 1:
+        r = http.delete(f"{API}/channels/{d['channel_id']}/messages/{ids[0]}", headers=bh())
+        return jsonify({"ok": r.ok, "deleted": 1 if r.ok else 0})
+    r = http.post(f"{API}/channels/{d['channel_id']}/messages/bulk-delete",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json={"messages": ids})
+    return jsonify({"ok": r.ok, "deleted": len(ids) if r.ok else 0,
+                    "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/welcome", methods=["POST"])
+@require_login
+def api_welcome():
+    d   = request.json
+    gid = d["guild_id"]
+    cfg = {
+        "channel_id": d["channel_id"],
+        "message":    d.get("message", ""),
+        "dm_message": d.get("dm_message", "")
+    }
+    welcome_configs[gid] = cfg
+    save_welcome(welcome_configs)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/setverify", methods=["POST"])
+@require_login
+def api_setverify():
+    d   = request.json
+    gid = str(d["guild_id"])
+    cfg = {
+        "channel_id": d["channel_id"],
+        "role_id":    d["role_id"],
+        "message":    d.get("message", "Haz clic en el botón para verificarte y acceder al servidor.")
+    }
+    verify_configs[gid] = cfg
+    save_verify(verify_configs)
+    payload = {
+        "embeds": [{
+            "title":       "🔐 Verificación",
+            "description": cfg["message"],
+            "color":       0x3CFFA0,
+            "footer":      {"text": "Pulsa el botón para obtener acceso al servidor."}
+        }],
+        "components": [{
+            "type": 1,
+            "components": [{
+                "type":      2,
+                "style":     3,
+                "label":     "✅ Verificarme",
+                "custom_id": "randoom_verify_button"
+            }]
+        }]
+    }
+    r = http.post(
+        f"{API}/channels/{d['channel_id']}/messages",
+        headers={**bh(), "Content-Type": "application/json"},
+        json=payload
+    )
+    return jsonify({"ok": r.ok, "error": r.json().get("message", "") if not r.ok else None})
+
+
+@app.route("/api/quitarverify", methods=["POST"])
+@require_login
+def api_quitarverify():
+    gid = str(request.json["guild_id"])
+    if gid in verify_configs:
+        del verify_configs[gid]
+        save_verify(verify_configs)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/setlogs", methods=["POST"])
+@require_login
+def api_setlogs():
+    d   = request.json
+    gid = str(d["guild_id"])
+    cfg = {"channel_id": d["channel_id"]}
+    logs_configs[gid] = cfg
+    save_logs(logs_configs)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/quitarlogs", methods=["POST"])
+@require_login
+def api_quitarlogs():
+    gid = str(request.json["guild_id"])
+    if gid in logs_configs:
+        del logs_configs[gid]
+        save_logs(logs_configs)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/members/<gid>")
+@require_login
+def api_members(gid):
+    r = http.get(f"{API}/guilds/{gid}/members?limit=100", headers=bh())
+    return jsonify(r.json() if r.ok else [])
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "bot": str(bot_client.user) if bot_client.is_ready() else "connecting"}), 200
+
+
+# ─── DISCORD BOT (importado desde bot.py, con todos los comandos) ─────────────
+from bot import client as bot_client
+
+
+def run_bot():
+    """Bot loop con reconexión automática ante errores fatales."""
+    if not BOT_TOKEN:
+        logger.warning("DISCORD_TOKEN no definido — bot no iniciado.")
+        return
+    import time as _time
+    delay = 2
+    while True:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(bot_client.start(BOT_TOKEN, reconnect=True))
+        except Exception as exc:
+            logger.error(f"Bot caído: {exc}. Reconectando en {delay}s…")
+            _time.sleep(delay)
+            delay = min(delay * 2, 300)
+        else:
+            break   # salida limpia (KeyboardInterrupt propagado)
+
+
+_bot_started = False
+
+def _ensure_bot():
+    """Inicia el bot una sola vez (compatible con gunicorn y python directo)."""
+    global _bot_started
+    if _bot_started or not BOT_TOKEN:
+        return
+    _bot_started = True
+    t = threading.Thread(target=run_bot, daemon=True, name="discord-bot")
+    t.start()
+    logger.info("Bot iniciado en hilo secundario.")
+
+
+# ─── START ────────────────────────────────────────────────────────────────────
+# Se ejecuta tanto con `python main.py` como con gunicorn (module import)
+_ensure_bot()
+
+if __name__ == "__main__":
+    logger.info(f"Dashboard en http://0.0.0.0:{PORT}")
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
