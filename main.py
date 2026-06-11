@@ -772,17 +772,11 @@ async function searchDmMember() {{
   const q = document.getElementById("dm-search").value.trim();
   if (!q) return;
   document.getElementById("dm-result").innerHTML = '<p style="color:#8b949e;font-size:12px">Buscando...</p>';
-  const r  = await fetch("/api/members/" + GID);
+  const r  = await fetch("/api/member_search/" + GID + "?q=" + encodeURIComponent(q));
   const ms = await r.json();
-  if (!Array.isArray(ms)) {{ document.getElementById("dm-result").innerHTML = '<p style="color:#f85149;font-size:12px">Error al cargar miembros.</p>'; return; }}
-  const found = ms.filter(m => {{
-    const u = m.user;
-    if (u.bot) return false;
-    return u.id === q || (u.username||"").toLowerCase().includes(q.toLowerCase()) || (u.global_name||"").toLowerCase().includes(q.toLowerCase()) || (m.nick||"").toLowerCase().includes(q.toLowerCase());
-  }});
-  if (!found.length) {{ document.getElementById("dm-result").innerHTML = '<p style="color:#8b949e;font-size:12px">No se encontró ningún miembro.</p>'; return; }}
+  if (!Array.isArray(ms) || !ms.length) {{ document.getElementById("dm-result").innerHTML = '<p style="color:#8b949e;font-size:12px">No se encontró ningún miembro.</p>'; return; }}
   let html = "";
-  found.slice(0,8).forEach(m => {{
+  ms.slice(0,8).forEach(m => {{
     const u    = m.user;
     const nick = esc(m.nick || u.global_name || u.username);
     const av   = u.avatar ? `https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png` : "";
@@ -1086,7 +1080,29 @@ def api_quitarlogs():
 @app.route("/api/members/<gid>")
 @require_login
 def api_members(gid):
-    r = http.get(f"{API}/guilds/{gid}/members?limit=100", headers=bh())
+    r = http.get(f"{API}/guilds/{gid}/members?limit=1000", headers=bh())
+    return jsonify(r.json() if r.ok else [])
+
+
+@app.route("/api/member_search/<gid>")
+@require_login
+def api_member_search(gid):
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+    # búsqueda por ID directa
+    if q.isdigit():
+        r = http.get(f"{API}/guilds/{gid}/members/{q}", headers=bh())
+        if r.ok:
+            return jsonify([r.json()])
+        # intenta usuario global
+        ru = http.get(f"{API}/users/{q}", headers=bh())
+        if ru.ok:
+            u = ru.json()
+            return jsonify([{"user": u, "nick": None, "roles": []}])
+        return jsonify([])
+    # búsqueda por nombre con endpoint nativo de Discord
+    r = http.get(f"{API}/guilds/{gid}/members/search?query={q}&limit=10", headers=bh())
     return jsonify(r.json() if r.ok else [])
 
 
