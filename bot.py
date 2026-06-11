@@ -19,6 +19,11 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
+# deduplicación de bienvenidas (evita múltiples instancias)
+import time as _time
+_welcome_cache: dict = {}
+_WELCOME_TTL = 10  # segundos
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (
     welcome_configs, save_welcome,
@@ -127,6 +132,13 @@ async def on_ready():
 
 @client.event
 async def on_member_join(member: discord.Member):
+    # evitar duplicados si hay varias instancias corriendo
+    key = f"{member.guild.id}:{member.id}"
+    now = _time.time()
+    if key in _welcome_cache and now - _welcome_cache[key] < _WELCOME_TTL:
+        return
+    _welcome_cache[key] = now
+
     gid = str(member.guild.id)
     if gid not in welcome_configs:
         return
