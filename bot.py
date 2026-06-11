@@ -115,6 +115,13 @@ class VerifyView(discord.ui.View):
 async def on_ready():
     client.add_view(VerifyView())
     await tree.sync()
+    await client.change_presence(
+        status=discord.Status.online,
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name="/ayuda | Moderación & Logs"
+        )
+    )
     logger.info(f"Bot conectado como {client.user}")
 
 
