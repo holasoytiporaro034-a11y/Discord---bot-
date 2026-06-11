@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 import os
 import logging
-import json
+import sys
 from datetime import timedelta, datetime, timezone
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -19,9 +19,7 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-# ─── CONFIGURACIÓN COMPARTIDA (config.py) ─────────────────────────────────────
-import sys as _sys, os as _os
-_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import (
     welcome_configs, save_welcome,
     verify_configs,  save_verify,
@@ -29,9 +27,9 @@ from config import (
 )
 
 
-# ─── HELPER: enviar log de moderación ─────────────────────────────────────────
-async def send_log(guild: discord.Guild, action: str, target: discord.Member,
-                   moderator: discord.Member, reason: str = "", extra: str = ""):
+# ─── HELPER: enviar log ────────────────────────────────────────────────────────
+async def send_log(guild: discord.Guild, action: str, target,
+                   moderator=None, reason: str = "", extra: str = ""):
     gid = str(guild.id)
     if gid not in logs_configs:
         return
@@ -43,26 +41,31 @@ async def send_log(guild: discord.Guild, action: str, target: discord.Member,
         return
 
     colors = {
-        "🔨 Ban":      discord.Color.red(),
-        "👢 Kick":     discord.Color.orange(),
-        "🔇 Mute":     discord.Color.yellow(),
-        "🔊 Unmute":   discord.Color.green(),
-        "🗑️ Purge":    discord.Color.blurple(),
-        "✅ Verificado": discord.Color.green(),
+        "🔨 Ban":             discord.Color.red(),
+        "👢 Kick":            discord.Color.orange(),
+        "🔇 Mute":            discord.Color.yellow(),
+        "🔊 Unmute":          discord.Color.green(),
+        "🗑️ Purge":           discord.Color.blurple(),
+        "✅ Verificado":      discord.Color.green(),
+        "✏️ Mensaje editado": discord.Color.blue(),
+        "🎭 Rol cambiado":    discord.Color.purple(),
+        "📝 Perfil editado":  discord.Color.teal(),
     }
     embed = discord.Embed(
         title=action,
         color=colors.get(action, discord.Color.greyple()),
         timestamp=datetime.now(timezone.utc)
     )
-    embed.add_field(name="Usuario", value=f"{target.mention} (`{target.id}`)", inline=False)
-    embed.add_field(name="Moderador", value=moderator.mention, inline=True)
+    if hasattr(target, "mention"):
+        embed.add_field(name="Usuario", value=f"{target.mention} (`{target.id}`)", inline=False)
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.set_footer(text=f"ID: {target.id}")
+    if moderator and moderator != target:
+        embed.add_field(name="Moderador", value=moderator.mention, inline=True)
     if reason:
         embed.add_field(name="Razón", value=reason, inline=True)
     if extra:
         embed.add_field(name="Detalle", value=extra, inline=False)
-    embed.set_thumbnail(url=target.display_avatar.url)
-    embed.set_footer(text=f"ID: {target.id}")
     try:
         await channel.send(embed=embed)
     except Exception as e:
@@ -90,7 +93,7 @@ class VerifyView(discord.ui.View):
         role    = interaction.guild.get_role(role_id)
         if not role:
             return await interaction.response.send_message(
-                "❌ El rol de verificación ya no existe. Pide a un admin que lo reconfigue.", ephemeral=True
+                "❌ El rol de verificación ya no existe. Pide a un admin que lo reconfigure.", ephemeral=True
             )
         if role in interaction.user.roles:
             return await interaction.response.send_message(
@@ -110,13 +113,13 @@ class VerifyView(discord.ui.View):
 # ─── EVENTOS ──────────────────────────────────────────────────────────────────
 @client.event
 async def on_ready():
-    client.add_view(VerifyView())   # registrar vista persistente para reinicios
+    client.add_view(VerifyView())
     await tree.sync()
     logger.info(f"Bot conectado como {client.user}")
 
 
 @client.event
-async def on_member_join(member):
+async def on_member_join(member: discord.Member):
     gid = str(member.guild.id)
     if gid not in welcome_configs:
         return
@@ -124,15 +127,86 @@ async def on_member_join(member):
     channel_id = cfg.get("channel_id")
     message    = cfg.get("message", "")
     dm_message = cfg.get("dm_message", "")
-    if channel_id and message:
+    embed_cfg  = cfg.get("embed_config")
+
+    if channel_id:
         channel = member.guild.get_channel(int(channel_id))
         if channel:
-            await channel.send(message.replace("{user}", member.mention))
+            if embed_cfg:
+                try:
+                    color_int = int(embed_cfg.get("color", "3cffa0").lstrip("#"), 16)
+                except ValueError:
+                    color_int = 0x3CFFA0
+                emb = discord.Embed(
+                    title=embed_cfg.get("title", "").replace("{user}", member.display_name),
+                    description=embed_cfg.get("description", "").replace("{user}", member.mention),
+                    color=color_int
+                )
+                if embed_cfg.get("image_url"):
+                    emb.set_image(url=embed_cfg["image_url"])
+                if embed_cfg.get("thumbnail_url"):
+                    emb.set_thumbnail(url=embed_cfg["thumbnail_url"])
+                if embed_cfg.get("footer"):
+                    emb.set_footer(text=embed_cfg["footer"].replace("{user}", member.display_name))
+                await channel.send(embed=emb)
+            elif message:
+                await channel.send(message.replace("{user}", member.mention))
+
     if dm_message:
         try:
             await member.send(dm_message.replace("{user}", member.display_name))
         except Exception:
             pass
+
+
+@client.event
+async def on_message_edit(before: discord.Message, after: discord.Message):
+    if before.author.bot:
+        return
+    if before.content == after.content:
+        return
+    if not before.guild:
+        return
+    await send_log(
+        before.guild,
+        "✏️ Mensaje editado",
+        before.author,
+        extra=(
+            f"**Canal:** {before.channel.mention}\n"
+            f"**Antes:** {before.content[:500] or '*(sin texto)*'}\n"
+            f"**Después:** {after.content[:500] or '*(sin texto)*'}\n"
+            f"[Ver mensaje]({after.jump_url})"
+        )
+    )
+
+
+@client.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    if before.nick != after.nick:
+        await send_log(
+            before.guild,
+            "📝 Perfil editado",
+            after,
+            extra=(
+                f"**Apodo anterior:** {before.nick or before.name}\n"
+                f"**Apodo nuevo:** {after.nick or after.name}"
+            )
+        )
+
+    added_roles   = [r for r in after.roles  if r not in before.roles]
+    removed_roles = [r for r in before.roles if r not in after.roles]
+    if added_roles or removed_roles:
+        detail = ""
+        if added_roles:
+            detail += "**Roles añadidos:** " + ", ".join(r.mention for r in added_roles) + "\n"
+        if removed_roles:
+            detail += "**Roles eliminados:** " + ", ".join(r.mention for r in removed_roles)
+        await send_log(
+            before.guild,
+            "🎭 Rol cambiado",
+            after,
+            extra=detail.strip()
+        )
 
 
 # ─── PING ─────────────────────────────────────────────────────────────────────
@@ -151,7 +225,7 @@ async def hola(interaction: discord.Interaction):
 # ─── AYUDA ────────────────────────────────────────────────────────────────────
 @tree.command(name="ayuda", description="Muestra todos los comandos disponibles")
 async def ayuda(interaction: discord.Interaction):
-    embed = discord.Embed(title="📋 Comandos — RANDOOM SUPPORT", color=discord.Color.blurple())
+    embed = discord.Embed(title="📋 Comandos disponibles", color=discord.Color.blurple())
     embed.add_field(
         name="⚙️ General",
         value="`/ping` `/hola` `/ayuda`",
@@ -179,17 +253,27 @@ async def ayuda(interaction: discord.Interaction):
     )
     embed.add_field(
         name="👋 Bienvenidas",
-        value="`/bienvenida #canal [mensaje] [dm]`",
+        value=(
+            "`/bienvenida #canal [mensaje] [dm]` — Bienvenida de texto\n"
+            "`/bienvenida_embed #canal [título] [desc] [color] [img_url] [footer] [dm]` — Bienvenida con embed"
+        ),
         inline=False
     )
     embed.add_field(
         name="🔐 Verificación",
-        value="`/setverify #canal @rol [mensaje]` — Configura verificación con botón\n`/quitarverify` — Elimina la verificación",
+        value=(
+            "`/setverify #canal @rol [mensaje]` — Configura verificación con botón\n"
+            "`/quitarverify` — Elimina la verificación"
+        ),
         inline=False
     )
     embed.add_field(
         name="📋 Logs",
-        value="`/setlogs #canal` — Canal de logs de moderación\n`/quitarlogs` — Desactiva los logs",
+        value=(
+            "`/setlogs #canal` — Canal de logs\n"
+            "`/quitarlogs` — Desactiva los logs\n"
+            "Se registran: bans, kicks, mutes, purges, verificaciones,\nmensajes editados, cambios de rol y cambios de apodo"
+        ),
         inline=False
     )
     embed.set_footer(text="Solo admins pueden usar comandos de configuración.")
@@ -287,8 +371,8 @@ async def mute(interaction: discord.Interaction, usuario: discord.Member, minuto
                    extra=f"Duración: {minutos} minuto(s)")
 
 
-# ─── BIENVENIDA ───────────────────────────────────────────────────────────────
-@tree.command(name="bienvenida", description="Configura el mensaje de bienvenida automática")
+# ─── BIENVENIDA (texto) ────────────────────────────────────────────────────────
+@tree.command(name="bienvenida", description="Configura el mensaje de bienvenida automática (texto)")
 @app_commands.describe(
     canal="Canal donde se enviarán las bienvenidas",
     mensaje="Mensaje en el canal (usa {user} para mencionar)",
@@ -298,15 +382,80 @@ async def mute(interaction: discord.Interaction, usuario: discord.Member, minuto
 async def bienvenida(interaction: discord.Interaction, canal: discord.TextChannel,
                      mensaje: str, dm: str = ""):
     gid = str(interaction.guild_id)
-    welcome_configs[gid] = {"channel_id": str(canal.id), "message": mensaje, "dm_message": dm}
+    welcome_configs[gid] = {
+        "channel_id": str(canal.id),
+        "message": mensaje,
+        "dm_message": dm,
+        "embed_config": None
+    }
     save_welcome(welcome_configs)
-    embed = discord.Embed(title="✅ Bienvenida configurada", color=discord.Color.green())
+    embed = discord.Embed(title="✅ Bienvenida configurada (texto)", color=discord.Color.green())
     embed.add_field(name="Canal", value=canal.mention, inline=False)
     embed.add_field(name="Mensaje", value=mensaje, inline=False)
     if dm:
         embed.add_field(name="DM", value=dm, inline=False)
     embed.set_footer(text="Usa {user} para mencionar al nuevo miembro.")
     await interaction.response.send_message(embed=embed)
+
+
+# ─── BIENVENIDA EMBED ─────────────────────────────────────────────────────────
+@tree.command(name="bienvenida_embed", description="Configura bienvenida automática con embed e imagen")
+@app_commands.describe(
+    canal="Canal de bienvenida",
+    titulo="Título del embed (usa {user} para el nombre)",
+    descripcion="Descripción del embed (usa {user} para mencionar)",
+    color="Color hex sin # (ej: 3cffa0)",
+    imagen_url="URL de la imagen principal del embed (opcional)",
+    thumbnail_url="URL de la miniatura del embed (opcional)",
+    footer="Texto del footer (opcional, usa {user} para el nombre)",
+    dm="Mensaje DM privado al nuevo miembro (opcional)"
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def bienvenida_embed(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel,
+    titulo: str,
+    descripcion: str,
+    color: str = "3cffa0",
+    imagen_url: str = "",
+    thumbnail_url: str = "",
+    footer: str = "",
+    dm: str = ""
+):
+    gid = str(interaction.guild_id)
+    welcome_configs[gid] = {
+        "channel_id": str(canal.id),
+        "message": "",
+        "dm_message": dm,
+        "embed_config": {
+            "title": titulo,
+            "description": descripcion,
+            "color": color.lstrip("#"),
+            "image_url": imagen_url,
+            "thumbnail_url": thumbnail_url,
+            "footer": footer
+        }
+    }
+    save_welcome(welcome_configs)
+
+    try:
+        color_int = int(color.lstrip("#"), 16)
+    except ValueError:
+        color_int = 0x3CFFA0
+
+    preview = discord.Embed(
+        title="✅ Bienvenida embed configurada",
+        color=discord.Color.green()
+    )
+    preview.add_field(name="Canal", value=canal.mention, inline=True)
+    preview.add_field(name="Título", value=titulo, inline=True)
+    preview.add_field(name="Descripción", value=descripcion[:100], inline=False)
+    if imagen_url:
+        preview.add_field(name="Imagen URL", value=imagen_url[:80], inline=False)
+    if footer:
+        preview.add_field(name="Footer", value=footer, inline=False)
+    preview.set_footer(text="Usa {user} en título/desc/footer para mencionar al nuevo miembro.")
+    await interaction.response.send_message(embed=preview)
 
 
 # ─── SETVERIFY ────────────────────────────────────────────────────────────────
@@ -354,8 +503,8 @@ async def quitarverify(interaction: discord.Interaction):
 
 
 # ─── SETLOGS ──────────────────────────────────────────────────────────────────
-@tree.command(name="setlogs", description="Configura el canal de logs de moderación")
-@app_commands.describe(canal="Canal donde se registrarán las acciones de moderación")
+@tree.command(name="setlogs", description="Configura el canal de logs")
+@app_commands.describe(canal="Canal donde se registrarán todas las acciones")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
     gid = str(interaction.guild_id)
@@ -365,21 +514,24 @@ async def setlogs(interaction: discord.Interaction, canal: discord.TextChannel):
     embed.add_field(name="Canal", value=canal.mention, inline=False)
     embed.add_field(
         name="Se registrarán",
-        value="🔨 Bans · 👢 Kicks · 🔇 Mutes · 🗑️ Purges · ✅ Verificaciones",
+        value=(
+            "🔨 Bans · 👢 Kicks · 🔇 Mutes · 🗑️ Purges · ✅ Verificaciones\n"
+            "✏️ Mensajes editados · 🎭 Cambios de rol · 📝 Cambios de apodo"
+        ),
         inline=False
     )
     await interaction.response.send_message(embed=embed)
 
 
 # ─── QUITARLOGS ───────────────────────────────────────────────────────────────
-@tree.command(name="quitarlogs", description="Desactiva el canal de logs de moderación")
+@tree.command(name="quitarlogs", description="Desactiva el canal de logs")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def quitarlogs(interaction: discord.Interaction):
     gid = str(interaction.guild_id)
     if gid in logs_configs:
         del logs_configs[gid]
         save_logs(logs_configs)
-    await interaction.response.send_message("✅ Logs de moderación desactivados.", ephemeral=True)
+    await interaction.response.send_message("✅ Logs desactivados.", ephemeral=True)
 
 
 # ─── MENSAJE ──────────────────────────────────────────────────────────────────
