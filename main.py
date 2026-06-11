@@ -6,7 +6,7 @@ import logging
 import requests as http
 import json
 from discord import app_commands
-from flask import Flask, redirect, request, session, jsonify, send_from_directory
+from flask import Flask, redirect, request, session, jsonify
 from functools import wraps
 from datetime import datetime, timezone, timedelta
 from html import escape
@@ -33,9 +33,8 @@ from config import (
 )
 
 # ─── FLASK ────────────────────────────────────────────────────────────────────
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-app = Flask(__name__, static_folder=STATIC_DIR)
-app.secret_key = os.environ.get("SECRET_KEY", os.environ.get("SESSION_SECRET", "randoom-secret-2024"))
+app = Flask(__name__)
+app.secret_key = os.environ.get("SESSION_SECRET", "randoom-secret-2024")
 
 def bh():
     return {"Authorization": f"Bot {BOT_TOKEN}"}
@@ -50,19 +49,6 @@ def require_login(f):
             return redirect("/")
         return f(*a, **kw)
     return dec
-
-FAVICON_B64 = ""
-try:
-    import base64
-    with open(os.path.join(BASE_DIR, "static", "favicon.png"), "rb") as _f:
-        FAVICON_B64 = base64.b64encode(_f.read()).decode()
-except Exception:
-    pass
-
-FAVICON_TAG = (
-    f'<link rel="icon" type="image/png" href="data:image/png;base64,{FAVICON_B64}">'
-    if FAVICON_B64 else ""
-)
 
 CSS = """
 <style>
@@ -117,21 +103,16 @@ input[type=color]{height:38px;padding:4px 8px;cursor:pointer}
 .server-icon-ph{width:44px;height:44px;border-radius:11px;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#e6edf3;flex-shrink:0}
 .tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;display:inline-block}
 .tag-g{background:rgba(60,255,160,.15);color:#3cffa0;border:1px solid rgba(60,255,160,.3)}
-.tag-b{background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3)}
 .section-title{font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px}
 @media(max-width:600px){.grid3{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
 </style>
 """
 
-# ─── PAGES ────────────────────────────────────────────────────────────────────
-
-@app.route("/static/<path:filename>")
-def static_files(filename):
-    return send_from_directory("static", filename)
+# ─── RUTAS ────────────────────────────────────────────────────────────────────
 
 @app.route("/ping")
-def ping():
-    return jsonify({"status": "ok", "bot": bool(BOT_TOKEN)})
+def ping_route():
+    return jsonify({"status": "ok"})
 
 @app.route("/")
 def index():
@@ -140,12 +121,11 @@ def index():
     return f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RANDOOM</title>{FAVICON_TAG}{CSS}</head>
+<title>Bot Dashboard</title>{CSS}</head>
 <body style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px">
 <div style="max-width:400px;width:100%">
-<img src="data:image/png;base64,{FAVICON_B64}" style="width:72px;height:72px;object-fit:contain;margin-bottom:20px;border-radius:16px" onerror="this.style.display='none'">
-<div class="logo" style="font-size:36px;margin-bottom:4px">RANDOOM</div>
-<div class="badge" style="margin-bottom:16px">SUPPORT</div>
+<div class="logo" style="font-size:36px;margin-bottom:4px">BOT</div>
+<div class="badge" style="margin-bottom:16px">DASHBOARD</div>
 <p style="color:#8b949e;font-size:14px;margin-bottom:32px">Panel de control para tu bot de Discord.<br>Gestiona servidores, modera y personaliza desde aquí.</p>
 <a href="/login" style="display:flex;align-items:center;justify-content:center;gap:10px;background:#5865f2;color:#fff;padding:14px 28px;border-radius:12px;font-size:15px;font-weight:700;width:100%">
 <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.04.033.052a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
@@ -187,10 +167,10 @@ def logout():
 @app.route("/servers")
 @require_login
 def servers():
-    user = session["user"]
-    name = escape(user.get("global_name") or user["username"])
-    av   = user.get("avatar")
-    uid  = user["id"]
+    user  = session["user"]
+    name  = escape(user.get("global_name") or user["username"])
+    uid   = user["id"]
+    av    = user.get("avatar")
     av_url = (
         f"https://cdn.discordapp.com/avatars/{uid}/{av}.png?size=64"
         if av else "https://cdn.discordapp.com/embed/avatars/0.png"
@@ -199,12 +179,12 @@ def servers():
     ug = http.get(f"{API}/users/@me/guilds", headers=uh()).json()
     if not isinstance(ug, list):
         ug = []
-    bot_r = http.get(f"{API}/users/@me/guilds", headers=bh()).json()
+    bot_r   = http.get(f"{API}/users/@me/guilds", headers=bh()).json()
     bot_ids = {g["id"] for g in bot_r} if isinstance(bot_r, list) else set()
 
     with_bot, without_bot = [], []
     for g in ug:
-        perms = int(g.get("permissions", 0))
+        perms      = int(g.get("permissions", 0))
         can_manage = g.get("owner") or bool(perms & 0x20)
         if not can_manage:
             continue
@@ -218,7 +198,7 @@ def servers():
             f'<div class="server-icon-ph">{escape(g["name"][0])}</div>'
         )
         perms = int(g.get("permissions", 0))
-        role = "Propietario" if g.get("owner") else ("Admin" if perms & 0x8 else "Gestor")
+        role  = "Propietario" if g.get("owner") else ("Admin" if perms & 0x8 else "Gestor")
         if has_bot:
             btn = f'<a href="/server/{g["id"]}" class="btn btn-g" style="padding:7px 14px;font-size:12px">Gestionar</a>'
         else:
@@ -243,10 +223,9 @@ def servers():
     return f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RANDOOM — Servidores</title>{FAVICON_TAG}{CSS}</head><body>
+<title>Dashboard — Servidores</title>{CSS}</head><body>
 <nav class="nav">
-  <img src="data:image/png;base64,{FAVICON_B64}" style="width:28px;height:28px;border-radius:7px;object-fit:contain" onerror="this.style.display='none'">
-  <span class="logo">RANDOOM</span><span class="badge">SUPPORT</span>
+  <span class="logo">BOT</span><span class="badge">DASHBOARD</span>
   <div class="nav-right">
     <img class="avatar" src="{av_url}">
     <span style="font-size:13px;font-weight:600">{name}</span>
@@ -256,16 +235,13 @@ def servers():
 <div class="wrap">
   <h1 style="font-size:22px;font-weight:800;margin-bottom:6px">Hola, {name}!</h1>
   <p style="color:#8b949e;font-size:13px;margin-bottom:24px">Selecciona un servidor para gestionarlo.</p>
-
   <div class="grid3" style="margin-bottom:28px">
     <div class="stat"><div class="stat-n" style="color:#3cffa0">{len(with_bot)}</div><div class="stat-l">Con bot</div></div>
     <div class="stat"><div class="stat-n" style="color:#8b949e">{len(without_bot)}</div><div class="stat-l">Sin bot</div></div>
     <div class="stat"><div class="stat-n" style="color:#58a6ff">{len(with_bot)+len(without_bot)}</div><div class="stat-l">Total</div></div>
   </div>
-
   <div class="section-title">Bot instalado</div>
   {wb_html}
-
   <div class="section-title" style="margin-top:24px">Sin bot — puedes agregarlo</div>
   {wo_html}
 </div>
@@ -281,7 +257,7 @@ def dashboard(gid):
     g     = gr.json()
     gname = escape(g["name"])
 
-    ch_r = http.get(f"{API}/guilds/{gid}/channels", headers=bh())
+    ch_r  = http.get(f"{API}/guilds/{gid}/channels", headers=bh())
     channels = sorted(
         [c for c in (ch_r.json() if ch_r.ok else []) if c["type"] == 0],
         key=lambda c: c.get("position", 0)
@@ -304,27 +280,30 @@ def dashboard(gid):
         f'<div style="width:48px;height:48px;border-radius:12px;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px">{gname[0]}</div>'
     )
 
-    copts  = "".join(f'<option value="{c["id"]}">#{escape(c["name"])}</option>' for c in channels)
-    ropts  = "".join(
+    copts = "".join(f'<option value="{c["id"]}">#{escape(c["name"])}</option>' for c in channels)
+    ropts = "".join(
         f'<option value="{r["id"]}">@{escape(r["name"])}</option>'
         for r in sorted(roles, key=lambda r: -r.get("position", 0))
         if r["name"] != "@everyone"
     )
 
-    gid_s          = str(gid)
-    verify_cfg     = verify_configs.get(gid_s, {})
-    logs_cfg       = logs_configs.get(gid_s, {})
-    verify_ch_sel  = verify_cfg.get("channel_id", "")
-    verify_role_sel= verify_cfg.get("role_id", "")
-    verify_msg_val = escape(verify_cfg.get("message", ""))
-    logs_ch_sel    = logs_cfg.get("channel_id", "")
+    gid_s           = str(gid)
+    verify_cfg      = verify_configs.get(gid_s, {})
+    logs_cfg        = logs_configs.get(gid_s, {})
+    welcome_cfg     = welcome_configs.get(gid_s, {})
+    verify_ch_sel   = verify_cfg.get("channel_id", "")
+    verify_role_sel = verify_cfg.get("role_id", "")
+    verify_msg_val  = escape(verify_cfg.get("message", ""))
+    logs_ch_sel     = logs_cfg.get("channel_id", "")
+    wel_ch_sel      = welcome_cfg.get("channel_id", "")
+    embed_cfg       = welcome_cfg.get("embed_config") or {}
 
-    def copts_selected(sel_id):
+    def copts_sel(sel_id):
         return "".join(
             f'<option value="{c["id"]}"{"selected" if c["id"]==sel_id else ""}>#{escape(c["name"])}</option>'
             for c in channels
         )
-    def ropts_selected(sel_id):
+    def ropts_sel(sel_id):
         return "".join(
             f'<option value="{r["id"]}"{"selected" if r["id"]==sel_id else ""}>@{escape(r["name"])}</option>'
             for r in sorted(roles, key=lambda r: -r.get("position", 0))
@@ -332,22 +311,23 @@ def dashboard(gid):
         )
 
     all_cmds = [
-        ("/ping",                         "Latencia del bot"),
-        ("/hola",                         "El bot te saluda"),
-        ("/ayuda",                        "Lista de comandos"),
-        ("/purge [cantidad]",             "Eliminar mensajes (1-100)"),
-        ("/kick @usuario [razón]",        "Expulsar miembro"),
-        ("/ban @usuario [razón]",         "Banear miembro"),
-        ("/mute @usuario [minutos]",      "Silenciar miembro"),
-        ("/bienvenida #canal [msg]",      "Configurar bienvenidas"),
-        ("/setverify #canal @rol [msg]",  "Configurar verificación con botón"),
-        ("/quitarverify",                 "Desactivar verificación"),
-        ("/setlogs #canal",               "Canal de logs de moderación"),
-        ("/quitarlogs",                   "Desactivar logs"),
-        ("/mensaje #canal [texto]",       "Enviar mensaje como bot"),
-        ("/embed #canal ...",             "Enviar embed"),
-        ("/imagen #canal [url]",          "Enviar imagen desde URL"),
-        ("/embed_imagen #canal ...",      "Embed completo con imagen y footer"),
+        ("/ping",                              "Latencia del bot"),
+        ("/hola",                              "El bot te saluda"),
+        ("/ayuda",                             "Lista de comandos"),
+        ("/purge [cantidad]",                  "Eliminar mensajes (1-100)"),
+        ("/kick @usuario [razón]",             "Expulsar miembro"),
+        ("/ban @usuario [razón]",              "Banear miembro"),
+        ("/mute @usuario [minutos]",           "Silenciar miembro"),
+        ("/bienvenida #canal [msg]",           "Bienvenida de texto"),
+        ("/bienvenida_embed #canal ...",       "Bienvenida con embed e imagen"),
+        ("/setverify #canal @rol [msg]",       "Verificación con botón"),
+        ("/quitarverify",                      "Desactivar verificación"),
+        ("/setlogs #canal",                    "Canal de logs"),
+        ("/quitarlogs",                        "Desactivar logs"),
+        ("/mensaje #canal [texto]",            "Enviar mensaje como bot"),
+        ("/embed #canal ...",                  "Enviar embed"),
+        ("/imagen #canal [url]",               "Enviar imagen desde URL"),
+        ("/embed_imagen #canal ...",           "Embed completo con imagen"),
     ]
     cmds_html = "".join(
         f'<div class="cmd-row"><code>{c[0]}</code><span>— {c[1]}</span></div>'
@@ -357,10 +337,9 @@ def dashboard(gid):
     return f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RANDOOM — {gname}</title>{FAVICON_TAG}{CSS}</head><body>
+<title>Dashboard — {gname}</title>{CSS}</head><body>
 <nav class="nav">
-  <img src="data:image/png;base64,{FAVICON_B64}" style="width:28px;height:28px;border-radius:7px;object-fit:contain" onerror="this.style.display='none'">
-  <span class="logo">RANDOOM</span><span class="badge">SUPPORT</span>
+  <span class="logo">BOT</span><span class="badge">DASHBOARD</span>
   <span style="color:#30363d;margin:0 4px">›</span>
   <span style="font-size:13px;font-weight:700">{gname}</span>
   <div class="nav-right">
@@ -380,15 +359,15 @@ def dashboard(gid):
   </div>
 
   <div class="tabs">
-    <button class="tab active" data-tab="resumen"    onclick="sw(this,'resumen')">📊 Resumen</button>
-    <button class="tab"        data-tab="mensajes"   onclick="sw(this,'mensajes')">💬 Mensajes</button>
-    <button class="tab"        data-tab="embeds"     onclick="sw(this,'embeds')">🖼️ Embeds</button>
-    <button class="tab"        data-tab="moderacion" onclick="sw(this,'moderacion')">🛡️ Moderación</button>
-    <button class="tab"        data-tab="purge"      onclick="sw(this,'purge')">🗑️ Purge</button>
-    <button class="tab"        data-tab="bienvenidas" onclick="sw(this,'bienvenidas')">👋 Bienvenidas</button>
-    <button class="tab"        data-tab="verificacion" onclick="sw(this,'verificacion')">🔐 Verificación</button>
-    <button class="tab"        data-tab="logs"         onclick="sw(this,'logs')">📋 Logs</button>
-    <button class="tab"        data-tab="miembros"   onclick="sw(this,'miembros')">👥 Miembros</button>
+    <button class="tab active" onclick="sw(this,'resumen')">📊 Resumen</button>
+    <button class="tab" onclick="sw(this,'mensajes')">💬 Mensajes</button>
+    <button class="tab" onclick="sw(this,'embeds')">🖼️ Embeds</button>
+    <button class="tab" onclick="sw(this,'moderacion')">🛡️ Moderación</button>
+    <button class="tab" onclick="sw(this,'purge')">🗑️ Purge</button>
+    <button class="tab" onclick="sw(this,'bienvenidas')">👋 Bienvenidas</button>
+    <button class="tab" onclick="sw(this,'verificacion')">🔐 Verificación</button>
+    <button class="tab" onclick="sw(this,'logs')">📋 Logs</button>
+    <button class="tab" onclick="sw(this,'miembros')">👥 Miembros</button>
   </div>
 
   <!-- RESUMEN -->
@@ -408,7 +387,7 @@ def dashboard(gid):
   <div id="p-mensajes" class="panel">
     <div id="al-msg" class="alert"></div>
     <div class="card">
-      <h3>Enviar mensaje</h3>
+      <h3>Enviar mensaje de texto</h3>
       <p>El bot envía el texto al canal elegido.</p>
       <div class="fg"><label>Canal</label>
         <select id="msg-ch"><option value="">Selecciona un canal...</option>{copts}</select></div>
@@ -421,7 +400,6 @@ def dashboard(gid):
   <!-- EMBEDS -->
   <div id="p-embeds" class="panel">
     <div id="al-emb" class="alert"></div>
-
     <div class="card">
       <h3>Embed simple</h3>
       <p>Embed con título, descripción, color y footer opcional.</p>
@@ -439,7 +417,6 @@ def dashboard(gid):
         <input type="text" id="e-foot" placeholder="Texto del footer"></div>
       <button class="btn btn-g" onclick="sendEmbed()">Enviar embed</button>
     </div>
-
     <div class="card">
       <h3>Enviar imagen desde URL</h3>
       <p>Muestra una imagen en el canal usando una URL directa.</p>
@@ -451,7 +428,6 @@ def dashboard(gid):
         <input type="text" id="img-title" placeholder="Título encima de la imagen"></div>
       <button class="btn btn-b" onclick="sendImagen()">Enviar imagen</button>
     </div>
-
     <div class="card">
       <h3>Embed completo con imagen y footer</h3>
       <p>Embed con título, descripción, imagen desde URL, footer y color personalizados.</p>
@@ -493,7 +469,7 @@ def dashboard(gid):
         <select id="pu-ch"><option value="">Selecciona un canal...</option>{copts}</select></div>
       <div class="fg"><label>Cantidad de mensajes</label>
         <input type="number" id="pu-amt" value="10" min="1" max="100"></div>
-      <button class="btn btn-r" onclick="doPurge('{gid}')">🗑️ Eliminar mensajes</button>
+      <button class="btn btn-r" onclick="doPurge()">🗑️ Eliminar mensajes</button>
     </div>
   </div>
 
@@ -501,15 +477,38 @@ def dashboard(gid):
   <div id="p-bienvenidas" class="panel">
     <div id="al-wel" class="alert"></div>
     <div class="card">
-      <h3>Configurar bienvenida automática</h3>
-      <p>Cuando alguien entra al servidor, el bot lo saluda. Usa <code style="color:#3cffa0">{{user}}</code> para mencionar al nuevo miembro.</p>
+      <h3>Bienvenida de texto</h3>
+      <p>Mensaje de texto cuando alguien entra. Usa <code style="color:#3cffa0">{{user}}</code> para mencionar.</p>
       <div class="fg"><label>Canal de bienvenida</label>
-        <select id="wel-ch"><option value="">Selecciona un canal...</option>{copts}</select></div>
+        <select id="wel-ch"><option value="">Selecciona un canal...</option>{copts_sel(wel_ch_sel)}</select></div>
       <div class="fg"><label>Mensaje en el canal</label>
-        <textarea id="wel-msg" placeholder="¡Bienvenido {{user}} al servidor!"></textarea></div>
+        <textarea id="wel-msg" placeholder="¡Bienvenido {{user}} al servidor!">{escape(welcome_cfg.get("message",""))}</textarea></div>
       <div class="fg"><label>DM privado al nuevo miembro (opcional)</label>
-        <textarea id="wel-dm" placeholder="Hola {{user}}, gracias por unirte!"></textarea></div>
-      <button class="btn btn-g" onclick="saveWelcome('{gid}')">💾 Guardar bienvenida</button>
+        <textarea id="wel-dm" placeholder="Hola {{user}}, gracias por unirte!">{escape(welcome_cfg.get("dm_message",""))}</textarea></div>
+      <button class="btn btn-g" onclick="saveWelcome('{gid}')">💾 Guardar bienvenida texto</button>
+    </div>
+    <div class="card">
+      <h3>Bienvenida con Embed e Imagen</h3>
+      <p>Envía un embed al entrar. Usa <code style="color:#3cffa0">{{user}}</code> en título/descripción/footer.</p>
+      <div class="grid2">
+        <div class="fg"><label>Canal de bienvenida</label>
+          <select id="wemb-ch"><option value="">Selecciona un canal...</option>{copts_sel(wel_ch_sel)}</select></div>
+        <div class="fg"><label>Color</label>
+          <input type="color" id="wemb-col" value="#{embed_cfg.get('color','3cffa0')}"></div>
+      </div>
+      <div class="fg"><label>Título del embed</label>
+        <input type="text" id="wemb-title" placeholder="¡Bienvenido al servidor, {{user}}!" value="{escape(embed_cfg.get('title',''))}"></div>
+      <div class="fg"><label>Descripción</label>
+        <textarea id="wemb-desc" placeholder="Hola {{user}}, bienvenido a nuestro servidor...">{escape(embed_cfg.get('description',''))}</textarea></div>
+      <div class="fg"><label>URL de imagen grande (opcional)</label>
+        <input type="text" id="wemb-img" placeholder="https://ejemplo.com/banner.png" value="{escape(embed_cfg.get('image_url',''))}"></div>
+      <div class="fg"><label>URL de miniatura (opcional)</label>
+        <input type="text" id="wemb-thumb" placeholder="https://ejemplo.com/icon.png" value="{escape(embed_cfg.get('thumbnail_url',''))}"></div>
+      <div class="fg"><label>Footer (opcional)</label>
+        <input type="text" id="wemb-foot" placeholder="Somos {{user}} miembros ahora!" value="{escape(embed_cfg.get('footer',''))}"></div>
+      <div class="fg"><label>DM privado al nuevo miembro (opcional)</label>
+        <textarea id="wemb-dm" placeholder="Hola {{user}}, bienvenido!">{escape(welcome_cfg.get("dm_message",""))}</textarea></div>
+      <button class="btn btn-b" onclick="saveWelcomeEmbed('{gid}')">💾 Guardar bienvenida embed</button>
     </div>
   </div>
 
@@ -518,20 +517,20 @@ def dashboard(gid):
     <div id="al-verify" class="alert"></div>
     <div class="card">
       <h3>🔐 Verificación con botón</h3>
-      <p>El bot envía un embed con un botón "✅ Verificarme" en el canal elegido. Al pulsarlo, el usuario recibe el rol automáticamente.</p>
+      <p>El bot envía un embed con un botón "✅ Verificarme". Al pulsarlo, el usuario recibe el rol automáticamente.</p>
       <div class="grid2">
         <div class="fg"><label>Canal de verificación</label>
-          <select id="ver-ch"><option value="">Selecciona un canal...</option>{copts_selected(verify_ch_sel)}</select></div>
+          <select id="ver-ch"><option value="">Selecciona un canal...</option>{copts_sel(verify_ch_sel)}</select></div>
         <div class="fg"><label>Rol a asignar</label>
-          <select id="ver-rol"><option value="">Selecciona un rol...</option>{ropts_selected(verify_role_sel)}</select></div>
+          <select id="ver-rol"><option value="">Selecciona un rol...</option>{ropts_sel(verify_role_sel)}</select></div>
       </div>
       <div class="fg"><label>Mensaje del embed</label>
-        <textarea id="ver-msg" placeholder="Haz clic en el botón para verificarte y acceder al servidor.">{verify_msg_val}</textarea></div>
+        <textarea id="ver-msg" placeholder="Haz clic en el botón para verificarte.">{verify_msg_val}</textarea></div>
       <div style="display:flex;gap:10px;margin-top:4px">
         <button class="btn btn-g" onclick="saveVerify('{gid}')">💾 Guardar y enviar botón</button>
         {"<button class='btn btn-r' onclick='delVerify(`" + gid + "`)'>🗑️ Desactivar</button>" if verify_cfg else ""}
       </div>
-      {f'<p style="margin-top:14px;font-size:12px;color:#3cffa0">✅ Configurado — Canal: <b>{verify_ch_sel}</b> · Rol: <b>{verify_role_sel}</b></p>' if verify_cfg else '<p style="margin-top:14px;font-size:12px;color:#8b949e">Sin configurar.</p>'}
+      {f'<p style="margin-top:14px;font-size:12px;color:#3cffa0">✅ Configurado</p>' if verify_cfg else '<p style="margin-top:14px;font-size:12px;color:#8b949e">Sin configurar.</p>'}
     </div>
   </div>
 
@@ -539,23 +538,24 @@ def dashboard(gid):
   <div id="p-logs" class="panel">
     <div id="al-logs" class="alert"></div>
     <div class="card">
-      <h3>📋 Canal de logs de moderación</h3>
-      <p>Cada ban, kick, mute, purge y verificación genera un embed de registro en este canal con el moderador, el usuario afectado y la razón.</p>
+      <h3>📋 Canal de logs</h3>
+      <p>Cada acción genera un embed en este canal con todos los detalles.</p>
       <div class="fg"><label>Canal de logs</label>
-        <select id="log-ch"><option value="">Selecciona un canal...</option>{copts_selected(logs_ch_sel)}</select></div>
+        <select id="log-ch"><option value="">Selecciona un canal...</option>{copts_sel(logs_ch_sel)}</select></div>
       <div style="display:flex;gap:10px;margin-top:4px">
         <button class="btn btn-g" onclick="saveLogs('{gid}')">💾 Guardar canal</button>
         {"<button class='btn btn-r' onclick='delLogs(`" + gid + "`)'>🗑️ Desactivar</button>" if logs_cfg else ""}
       </div>
-      {f'<p style="margin-top:14px;font-size:12px;color:#3cffa0">✅ Canal configurado: <b>{logs_ch_sel}</b></p>' if logs_cfg else '<p style="margin-top:14px;font-size:12px;color:#8b949e">Sin configurar.</p>'}
-      <div style="margin-top:16px;padding:12px 14px;background:#161b22;border-radius:8px;font-size:12px;color:#8b949e">
-        <b style="color:#e6edf3">Se registran:</b>&nbsp;
-        🔨 Bans &nbsp;·&nbsp; 👢 Kicks &nbsp;·&nbsp; 🔇 Mutes &nbsp;·&nbsp; 🗑️ Purges &nbsp;·&nbsp; ✅ Verificaciones
+      {f'<p style="margin-top:14px;font-size:12px;color:#3cffa0">✅ Canal configurado</p>' if logs_cfg else '<p style="margin-top:14px;font-size:12px;color:#8b949e">Sin configurar.</p>'}
+      <div style="margin-top:16px;padding:12px 14px;background:#161b22;border-radius:8px;font-size:12px;color:#8b949e;line-height:1.8">
+        <b style="color:#e6edf3">Se registran:</b><br>
+        🔨 Bans &nbsp;·&nbsp; 👢 Kicks &nbsp;·&nbsp; 🔇 Mutes &nbsp;·&nbsp; 🗑️ Purges &nbsp;·&nbsp; ✅ Verificaciones<br>
+        ✏️ Mensajes editados &nbsp;·&nbsp; 🎭 Cambios de rol &nbsp;·&nbsp; 📝 Cambios de apodo
       </div>
     </div>
   </div>
 
-  <!-- MIEMBROS / DMs -->
+  <!-- MIEMBROS -->
   <div id="p-miembros" class="panel">
     <div id="al-dm" class="alert"></div>
     <div class="card">
@@ -593,16 +593,14 @@ function sw(btn, name) {{
   document.getElementById("p-" + name).classList.add("active");
 }}
 
-// ── Mensajes ──
 async function sendMsg() {{
-  const ch = document.getElementById("msg-ch").value;
+  const ch  = document.getElementById("msg-ch").value;
   const txt = document.getElementById("msg-txt").value.trim();
   if (!ch || !txt) return show("al-msg", "Selecciona canal y escribe el mensaje.", false);
   const r = await post("/api/msg", {{channel_id: ch, content: txt}});
   show("al-msg", r.ok ? "✅ Mensaje enviado!" : "❌ Error: " + (r.error||""), r.ok);
 }}
 
-// ── Embeds ──
 async function sendEmbed() {{
   const ch    = document.getElementById("e-ch").value;
   const title = document.getElementById("e-title").value.trim();
@@ -630,15 +628,14 @@ async function sendEmbedImagen() {{
   const url   = document.getElementById("ei-url").value.trim();
   const foot  = document.getElementById("ei-foot").value.trim();
   const color = parseInt(document.getElementById("ei-col").value.replace("#",""), 16);
-  if (!ch || !url) return show("al-emb", "Selecciona canal y escribe la URL de la imagen.", false);
+  if (!ch || !url) return show("al-emb", "Selecciona canal y URL de imagen.", false);
   const r = await post("/api/embed_imagen", {{channel_id: ch, title, description: desc, image_url: url, footer: foot, color}});
   show("al-emb", r.ok ? "✅ Embed con imagen enviado!" : "❌ Error: " + (r.error||""), r.ok);
 }}
 
-// ── Moderación ──
 async function loadModMembers() {{
   document.getElementById("mod-list").innerHTML = '<p style="color:#8b949e;font-size:13px;padding:12px 0">Cargando...</p>';
-  const r = await fetch("/api/members/" + GID);
+  const r  = await fetch("/api/members/" + GID);
   const ms = await r.json();
   if (!Array.isArray(ms) || ms.length === 0) {{
     document.getElementById("mod-list").innerHTML = '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
@@ -646,18 +643,18 @@ async function loadModMembers() {{
   }}
   let html = "";
   ms.forEach(m => {{
-    const u = m.user;
+    const u    = m.user;
     if (u.bot) return;
-    const nick = escape(m.nick || u.global_name || u.username);
-    const av = u.avatar
+    const nick = esc(m.nick || u.global_name || u.username);
+    const av   = u.avatar
       ? `<img src="https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
       : `<div style="width:36px;height:36px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700">${{u.username[0]}}</div>`;
     html += `<div class="mrow" id="mr${{u.id}}">
       ${{av}}
       <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${{nick}}</div><div style="font-size:11px;color:#8b949e">${{u.username}}</div></div>
-      <button class="btn btn-r" style="padding:5px 10px;font-size:11px" onclick="doBan('${{u.id}}','${{nick}}')">Ban</button>
-      <button class="btn btn-y" style="padding:5px 10px;font-size:11px;margin-left:4px" onclick="doKick('${{u.id}}','${{nick}}')">Kick</button>
-      <button class="btn btn-d" style="padding:5px 10px;font-size:11px;margin-left:4px" onclick="doMute('${{u.id}}','${{nick}}')">Mute</button>
+      <button class="btn btn-r"  style="padding:5px 10px;font-size:11px" onclick="doBan('${{u.id}}','${{nick}}')">Ban</button>
+      <button class="btn btn-y"  style="padding:5px 10px;font-size:11px;margin-left:4px" onclick="doKick('${{u.id}}','${{nick}}')">Kick</button>
+      <button class="btn btn-d"  style="padding:5px 10px;font-size:11px;margin-left:4px" onclick="doMute('${{u.id}}','${{nick}}')">Mute</button>
     </div>`;
   }});
   document.getElementById("mod-list").innerHTML = html || '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
@@ -667,7 +664,7 @@ async function doBan(uid, name) {{
   if (!confirm("¿Banear a " + name + "?")) return;
   const reason = prompt("Razón:", "") || "Sin razón";
   const r = await post("/api/ban", {{guild_id: GID, user_id: uid, reason}});
-  show("al-mod", r.ok ? "🔨 " + name + " baneado." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-mod", r.ok ? "🔨 " + name + " baneado." : "❌ " + (r.error||""), r.ok);
   if (r.ok) document.getElementById("mr" + uid)?.remove();
 }}
 
@@ -675,7 +672,7 @@ async function doKick(uid, name) {{
   if (!confirm("¿Expulsar a " + name + "?")) return;
   const reason = prompt("Razón:", "") || "Sin razón";
   const r = await post("/api/kick", {{guild_id: GID, user_id: uid, reason}});
-  show("al-mod", r.ok ? "👢 " + name + " expulsado." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-mod", r.ok ? "👢 " + name + " expulsado." : "❌ " + (r.error||""), r.ok);
   if (r.ok) document.getElementById("mr" + uid)?.remove();
 }}
 
@@ -683,63 +680,75 @@ async function doMute(uid, name) {{
   const mins = prompt("¿Cuántos minutos silenciar a " + name + "?", "10");
   if (!mins) return;
   const r = await post("/api/timeout", {{guild_id: GID, user_id: uid, minutes: parseInt(mins)}});
-  show("al-mod", r.ok ? "🔇 " + name + " silenciado " + mins + " min." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-mod", r.ok ? "🔇 " + name + " silenciado " + mins + " min." : "❌ " + (r.error||""), r.ok);
 }}
 
-// ── Purge ──
-async function doPurge(gid) {{
+async function doPurge() {{
   const ch  = document.getElementById("pu-ch").value;
   const amt = parseInt(document.getElementById("pu-amt").value);
   if (!ch) return show("al-purge", "Selecciona un canal.", false);
-  if (!confirm("¿Eliminar " + amt + " mensajes en ese canal?")) return;
+  if (!confirm("¿Eliminar " + amt + " mensajes?")) return;
   const r = await post("/api/purge", {{channel_id: ch, amount: amt}});
-  show("al-purge", r.ok ? "✅ " + r.deleted + " mensajes eliminados." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-purge", r.ok ? "✅ " + r.deleted + " mensajes eliminados." : "❌ " + (r.error||""), r.ok);
 }}
 
-// ── Bienvenidas ──
 async function saveWelcome(gid) {{
   const ch  = document.getElementById("wel-ch").value;
   const msg = document.getElementById("wel-msg").value.trim();
   const dm  = document.getElementById("wel-dm").value.trim();
   if (!ch || !msg) return show("al-wel", "Selecciona canal y escribe el mensaje.", false);
-  const r = await post("/api/welcome", {{guild_id: gid, channel_id: ch, message: msg, dm_message: dm}});
-  show("al-wel", r.ok ? "✅ Bienvenida guardada!" : "❌ Error: " + (r.error||""), r.ok);
+  const r = await post("/api/welcome", {{guild_id: gid, channel_id: ch, message: msg, dm_message: dm, embed_config: null}});
+  show("al-wel", r.ok ? "✅ Bienvenida guardada!" : "❌ " + (r.error||""), r.ok);
 }}
 
-// ── Verificación ──
+async function saveWelcomeEmbed(gid) {{
+  const ch    = document.getElementById("wemb-ch").value;
+  const color = document.getElementById("wemb-col").value.replace("#","");
+  const title = document.getElementById("wemb-title").value.trim();
+  const desc  = document.getElementById("wemb-desc").value.trim();
+  const img   = document.getElementById("wemb-img").value.trim();
+  const thumb = document.getElementById("wemb-thumb").value.trim();
+  const foot  = document.getElementById("wemb-foot").value.trim();
+  const dm    = document.getElementById("wemb-dm").value.trim();
+  if (!ch || !title) return show("al-wel", "Selecciona canal y escribe el título.", false);
+  const r = await post("/api/welcome", {{
+    guild_id: gid, channel_id: ch, message: "", dm_message: dm,
+    embed_config: {{title, description: desc, color, image_url: img, thumbnail_url: thumb, footer: foot}}
+  }});
+  show("al-wel", r.ok ? "✅ Bienvenida embed guardada!" : "❌ " + (r.error||""), r.ok);
+}}
+
 async function saveVerify(gid) {{
   const ch  = document.getElementById("ver-ch").value;
   const rol = document.getElementById("ver-rol").value;
   const msg = document.getElementById("ver-msg").value.trim();
   if (!ch || !rol) return show("al-verify", "Selecciona canal y rol.", false);
   const r = await post("/api/setverify", {{guild_id: gid, channel_id: ch, role_id: rol, message: msg}});
-  show("al-verify", r.ok ? "✅ Verificación configurada. Se envió el botón al canal." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-verify", r.ok ? "✅ Verificación configurada." : "❌ " + (r.error||""), r.ok);
 }}
 
 async function delVerify(gid) {{
-  if (!confirm("¿Desactivar el sistema de verificación?")) return;
+  if (!confirm("¿Desactivar verificación?")) return;
   const r = await post("/api/quitarverify", {{guild_id: gid}});
-  show("al-verify", r.ok ? "✅ Verificación desactivada." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-verify", r.ok ? "✅ Verificación desactivada." : "❌ " + (r.error||""), r.ok);
 }}
 
-// ── Logs ──
 async function saveLogs(gid) {{
   const ch = document.getElementById("log-ch").value;
   if (!ch) return show("al-logs", "Selecciona un canal.", false);
   const r = await post("/api/setlogs", {{guild_id: gid, channel_id: ch}});
-  show("al-logs", r.ok ? "✅ Canal de logs guardado." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-logs", r.ok ? "✅ Canal de logs guardado." : "❌ " + (r.error||""), r.ok);
 }}
 
 async function delLogs(gid) {{
-  if (!confirm("¿Desactivar los logs de moderación?")) return;
+  if (!confirm("¿Desactivar los logs?")) return;
   const r = await post("/api/quitarlogs", {{guild_id: gid}});
-  show("al-logs", r.ok ? "✅ Logs desactivados." : "❌ Error: " + (r.error||""), r.ok);
+  show("al-logs", r.ok ? "✅ Logs desactivados." : "❌ " + (r.error||""), r.ok);
 }}
 
-// ── DMs ──
 async function loadDmMembers() {{
   document.getElementById("dm-list").innerHTML = '<p style="color:#8b949e;font-size:13px;padding:12px 0">Cargando...</p>';
-  const r = await fetch("/api/members/" + GID);
+  const r  = await fetch("/api/members/" + GID);
   const ms = await r.json();
   if (!Array.isArray(ms) || ms.length === 0) {{
     document.getElementById("dm-list").innerHTML = '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
@@ -747,10 +756,10 @@ async function loadDmMembers() {{
   }}
   let html = "";
   ms.forEach(m => {{
-    const u = m.user;
+    const u    = m.user;
     if (u.bot) return;
-    const nick = escape(m.nick || u.global_name || u.username);
-    const av = u.avatar
+    const nick = esc(m.nick || u.global_name || u.username);
+    const av   = u.avatar
       ? `<img src="https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
       : `<div style="width:36px;height:36px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700">${{u.username[0]}}</div>`;
     html += `<div class="mrow">
@@ -767,11 +776,11 @@ async function sendDm(uid, name) {{
   const txt = document.getElementById("dmi" + uid)?.value.trim();
   if (!txt) return;
   const r = await post("/api/dm", {{user_id: uid, content: txt}});
-  show("al-dm", r.ok ? "✅ DM enviado a " + name : "❌ Error: " + (r.error||""), r.ok);
+  show("al-dm", r.ok ? "✅ DM enviado a " + name : "❌ " + (r.error||""), r.ok);
   if (r.ok && document.getElementById("dmi" + uid)) document.getElementById("dmi" + uid).value = "";
 }}
 
-function escape(s) {{ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }}
+function esc(s) {{ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }}
 </script>
 </body></html>"""
 
@@ -836,16 +845,16 @@ def api_embed_imagen():
 @app.route("/api/dm", methods=["POST"])
 @require_login
 def api_dm():
-    d = request.json
+    d  = request.json
     ch = http.post(f"{API}/users/@me/channels",
                    headers={**bh(), "Content-Type": "application/json"},
                    json={"recipient_id": d["user_id"]})
     if not ch.ok:
         return jsonify({"ok": False, "error": "No se pudo abrir DM"})
     cid = ch.json()["id"]
-    r = http.post(f"{API}/channels/{cid}/messages",
-                  headers={**bh(), "Content-Type": "application/json"},
-                  json={"content": d["content"]})
+    r   = http.post(f"{API}/channels/{cid}/messages",
+                    headers={**bh(), "Content-Type": "application/json"},
+                    json={"content": d["content"]})
     return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
 
 
@@ -871,11 +880,11 @@ def api_kick():
 @app.route("/api/timeout", methods=["POST"])
 @require_login
 def api_timeout():
-    d = request.json
+    d     = request.json
     until = (datetime.now(timezone.utc) + timedelta(minutes=int(d.get("minutes", 10)))).isoformat()
-    r = http.patch(f"{API}/guilds/{d['guild_id']}/members/{d['user_id']}",
-                   headers={**bh(), "Content-Type": "application/json"},
-                   json={"communication_disabled_until": until})
+    r     = http.patch(f"{API}/guilds/{d['guild_id']}/members/{d['user_id']}",
+                       headers={**bh(), "Content-Type": "application/json"},
+                       json={"communication_disabled_until": until})
     return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
 
 
@@ -904,13 +913,13 @@ def api_purge():
 @require_login
 def api_welcome():
     d   = request.json
-    gid = d["guild_id"]
-    cfg = {
-        "channel_id": d["channel_id"],
-        "message":    d.get("message", ""),
-        "dm_message": d.get("dm_message", "")
+    gid = str(d["guild_id"])
+    welcome_configs[gid] = {
+        "channel_id":   d["channel_id"],
+        "message":      d.get("message", ""),
+        "dm_message":   d.get("dm_message", ""),
+        "embed_config": d.get("embed_config")
     }
-    welcome_configs[gid] = cfg
     save_welcome(welcome_configs)
     return jsonify({"ok": True})
 
@@ -967,8 +976,7 @@ def api_quitarverify():
 def api_setlogs():
     d   = request.json
     gid = str(d["guild_id"])
-    cfg = {"channel_id": d["channel_id"]}
-    logs_configs[gid] = cfg
+    logs_configs[gid] = {"channel_id": d["channel_id"]}
     save_logs(logs_configs)
     return jsonify({"ok": True})
 
@@ -992,15 +1000,18 @@ def api_members(gid):
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "bot": str(bot_client.user) if bot_client.is_ready() else "connecting"}), 200
+    from bot import client as bot_client
+    return jsonify({
+        "status": "ok",
+        "bot": str(bot_client.user) if bot_client.is_ready() else "connecting"
+    }), 200
 
 
-# ─── DISCORD BOT (importado desde bot.py, con todos los comandos) ─────────────
+# ─── DISCORD BOT ──────────────────────────────────────────────────────────────
 from bot import client as bot_client
 
 
 def run_bot():
-    """Bot loop con reconexión automática ante errores fatales."""
     if not BOT_TOKEN:
         logger.warning("DISCORD_TOKEN no definido — bot no iniciado.")
         return
@@ -1011,31 +1022,18 @@ def run_bot():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(bot_client.start(BOT_TOKEN, reconnect=True))
-        except Exception as exc:
-            logger.error(f"Bot caído: {exc}. Reconectando en {delay}s…")
+        except Exception as e:
+            logger.error(f"Bot caído: {e}. Reconectando en {delay}s...")
             _time.sleep(delay)
-            delay = min(delay * 2, 300)
-        else:
-            break   # salida limpia (KeyboardInterrupt propagado)
+            delay = min(delay * 2, 60)
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
 
-
-_bot_started = False
-
-def _ensure_bot():
-    """Inicia el bot una sola vez (compatible con gunicorn y python directo)."""
-    global _bot_started
-    if _bot_started or not BOT_TOKEN:
-        return
-    _bot_started = True
-    t = threading.Thread(target=run_bot, daemon=True, name="discord-bot")
-    t.start()
-    logger.info("Bot iniciado en hilo secundario.")
-
-
-# ─── START ────────────────────────────────────────────────────────────────────
-# Se ejecuta tanto con `python main.py` como con gunicorn (module import)
-_ensure_bot()
 
 if __name__ == "__main__":
-    logger.info(f"Dashboard en http://0.0.0.0:{PORT}")
-    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+    t = threading.Thread(target=run_bot, daemon=True)
+    t.start()
+    app.run(host="0.0.0.0", port=PORT)
