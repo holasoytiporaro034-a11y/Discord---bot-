@@ -555,13 +555,33 @@ def dashboard(gid):
     </div>
   </div>
 
-  <!-- MIEMBROS -->
+  <!-- MIEMBROS / DM -->
   <div id="p-miembros" class="panel">
     <div id="al-dm" class="alert"></div>
     <div class="card">
-      <h3>Enviar DM a miembros</h3>
-      <p>Envía mensajes directos a cualquier miembro desde aquí.</p>
-      <div id="dm-list"><button class="btn btn-d" onclick="loadDmMembers()">Cargar miembros</button></div>
+      <h3>💬 Enviar DM directo</h3>
+      <p>Busca un miembro por nombre o ID, escribe el mensaje y ve el historial del chat.</p>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <input type="text" id="dm-search" placeholder="Nombre de usuario o ID..." style="flex:1">
+        <button class="btn btn-d" onclick="searchDmMember()">🔍 Buscar</button>
+      </div>
+      <div id="dm-result"></div>
+    </div>
+    <div class="card" id="dm-chat-card" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <img id="dm-chat-av" src="" style="width:38px;height:38px;border-radius:50%;object-fit:cover">
+        <div>
+          <div id="dm-chat-name" style="font-weight:700;font-size:14px"></div>
+          <div id="dm-chat-tag" style="font-size:11px;color:#8b949e"></div>
+        </div>
+      </div>
+      <div id="dm-history" style="background:#0b0e13;border:1px solid #21262d;border-radius:8px;padding:12px;min-height:80px;max-height:260px;overflow-y:auto;margin-bottom:12px;font-size:13px">
+        <p style="color:#8b949e;font-size:12px">Cargando historial...</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="dm-msg-input" placeholder="Escribe un mensaje..." style="flex:1" onkeydown="if(event.key==='Enter')sendDmChat()">
+        <button class="btn btn-b" onclick="sendDmChat()">Enviar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -746,38 +766,85 @@ async function delLogs(gid) {{
   show("al-logs", r.ok ? "✅ Logs desactivados." : "❌ " + (r.error||""), r.ok);
 }}
 
-async function loadDmMembers() {{
-  document.getElementById("dm-list").innerHTML = '<p style="color:#8b949e;font-size:13px;padding:12px 0">Cargando...</p>';
+let _dmUserId = null;
+
+async function searchDmMember() {{
+  const q = document.getElementById("dm-search").value.trim();
+  if (!q) return;
+  document.getElementById("dm-result").innerHTML = '<p style="color:#8b949e;font-size:12px">Buscando...</p>';
   const r  = await fetch("/api/members/" + GID);
   const ms = await r.json();
-  if (!Array.isArray(ms) || ms.length === 0) {{
-    document.getElementById("dm-list").innerHTML = '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
+  if (!Array.isArray(ms)) {{ document.getElementById("dm-result").innerHTML = '<p style="color:#f85149;font-size:12px">Error al cargar miembros.</p>'; return; }}
+  const found = ms.filter(m => {{
+    const u = m.user;
+    if (u.bot) return false;
+    return u.id === q || (u.username||"").toLowerCase().includes(q.toLowerCase()) || (u.global_name||"").toLowerCase().includes(q.toLowerCase()) || (m.nick||"").toLowerCase().includes(q.toLowerCase());
+  }});
+  if (!found.length) {{ document.getElementById("dm-result").innerHTML = '<p style="color:#8b949e;font-size:12px">No se encontró ningún miembro.</p>'; return; }}
+  let html = "";
+  found.slice(0,8).forEach(m => {{
+    const u    = m.user;
+    const nick = esc(m.nick || u.global_name || u.username);
+    const av   = u.avatar ? `https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png` : "";
+    const img  = av ? `<img src="${{av}}" style="width:34px;height:34px;border-radius:50%;object-fit:cover">` : `<div style="width:34px;height:34px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">${{u.username[0]}}</div>`;
+    html += `<div class="mrow" style="cursor:pointer" onclick="openDmChat('${{u.id}}','${{nick}}','${{av}}','${{u.username}}')">
+      ${{img}}
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${{nick}}</div><div style="font-size:11px;color:#8b949e">@${{esc(u.username)}}</div></div>
+      <button class="btn btn-b" style="padding:5px 12px;font-size:11px">Chat →</button>
+    </div>`;
+  }});
+  document.getElementById("dm-result").innerHTML = html;
+}}
+
+async function openDmChat(uid, name, av, tag) {{
+  _dmUserId = uid;
+  document.getElementById("dm-chat-av").src   = av || "";
+  document.getElementById("dm-chat-av").style.display = av ? "block" : "none";
+  document.getElementById("dm-chat-name").textContent = name;
+  document.getElementById("dm-chat-tag").textContent  = "@" + tag;
+  document.getElementById("dm-chat-card").style.display = "block";
+  document.getElementById("dm-msg-input").focus();
+  await loadDmHistory(uid);
+}}
+
+async function loadDmHistory(uid) {{
+  document.getElementById("dm-history").innerHTML = '<p style="color:#8b949e;font-size:12px">Cargando historial...</p>';
+  const r = await fetch("/api/dm_history/" + uid);
+  const d = await r.json();
+  if (!d.ok || !d.messages.length) {{
+    document.getElementById("dm-history").innerHTML = '<p style="color:#8b949e;font-size:12px;text-align:center">Sin mensajes aún.</p>';
     return;
   }}
   let html = "";
-  ms.forEach(m => {{
-    const u    = m.user;
-    if (u.bot) return;
-    const nick = esc(m.nick || u.global_name || u.username);
-    const av   = u.avatar
-      ? `<img src="https://cdn.discordapp.com/avatars/${{u.id}}/${{u.avatar}}.png" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
-      : `<div style="width:36px;height:36px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-weight:700">${{u.username[0]}}</div>`;
-    html += `<div class="mrow">
-      ${{av}}
-      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${{nick}}</div></div>
-      <input type="text" id="dmi${{u.id}}" placeholder="Mensaje..." style="width:180px;margin-right:6px">
-      <button class="btn btn-b" style="padding:5px 10px;font-size:11px" onclick="sendDm('${{u.id}}','${{nick}}')">DM</button>
+  d.messages.forEach(msg => {{
+    const isBot  = msg.from_bot;
+    const align  = isBot ? "flex-end" : "flex-start";
+    const bg     = isBot ? "#1a3a2a" : "#161b22";
+    const color  = isBot ? "#3cffa0" : "#e6edf3";
+    const name   = esc(msg.author);
+    const time   = new Date(msg.timestamp).toLocaleTimeString([], {{hour:"2-digit",minute:"2-digit"}});
+    html += `<div style="display:flex;flex-direction:column;align-items:${{align}};margin-bottom:8px">
+      <div style="font-size:10px;color:#8b949e;margin-bottom:2px">${{name}} · ${{time}}</div>
+      <div style="background:${{bg}};color:${{color}};padding:7px 11px;border-radius:10px;max-width:85%;font-size:13px;word-break:break-word">${{esc(msg.content)}}</div>
     </div>`;
   }});
-  document.getElementById("dm-list").innerHTML = html || '<p style="color:#8b949e;font-size:13px">Sin miembros.</p>';
+  const box = document.getElementById("dm-history");
+  box.innerHTML = html;
+  box.scrollTop = box.scrollHeight;
 }}
 
-async function sendDm(uid, name) {{
-  const txt = document.getElementById("dmi" + uid)?.value.trim();
+async function sendDmChat() {{
+  if (!_dmUserId) return;
+  const inp = document.getElementById("dm-msg-input");
+  const txt = inp.value.trim();
   if (!txt) return;
-  const r = await post("/api/dm", {{user_id: uid, content: txt}});
-  show("al-dm", r.ok ? "✅ DM enviado a " + name : "❌ " + (r.error||""), r.ok);
-  if (r.ok && document.getElementById("dmi" + uid)) document.getElementById("dmi" + uid).value = "";
+  inp.value = "";
+  const r = await post("/api/dm", {{user_id: _dmUserId, content: txt}});
+  if (r.ok) {{
+    await loadDmHistory(_dmUserId);
+  }} else {{
+    show("al-dm", "❌ " + (r.error||"No se pudo enviar"), false);
+  }}
 }}
 
 function esc(s) {{ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }}
@@ -856,6 +923,31 @@ def api_dm():
                     headers={**bh(), "Content-Type": "application/json"},
                     json={"content": d["content"]})
     return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
+@app.route("/api/dm_history/<user_id>", methods=["GET"])
+@require_login
+def api_dm_history(user_id):
+    ch = http.post(f"{API}/users/@me/channels",
+                   headers={**bh(), "Content-Type": "application/json"},
+                   json={"recipient_id": user_id})
+    if not ch.ok:
+        return jsonify({"ok": False, "messages": []})
+    cid  = ch.json()["id"]
+    msgs = http.get(f"{API}/channels/{cid}/messages?limit=20",
+                    headers=bh())
+    if not msgs.ok:
+        return jsonify({"ok": True, "messages": []})
+    result = []
+    me_id  = str(client.user.id) if client.user else None
+    for m in reversed(msgs.json()):
+        result.append({
+            "author":    m["author"].get("global_name") or m["author"]["username"],
+            "content":   m.get("content", ""),
+            "timestamp": m["timestamp"],
+            "from_bot":  m["author"]["id"] == me_id
+        })
+    return jsonify({"ok": True, "messages": result})
 
 
 @app.route("/api/ban", methods=["POST"])
