@@ -945,16 +945,18 @@ async function loadTicketConfig() {{
 function renderTicketBtns() {{
   const list = document.getElementById("tk-btns-list");
   if (!_tkBtns.length) {{ list.innerHTML = '<p style="color:#8b949e;font-size:12px">Sin botones aún.</p>'; return; }}
-  list.innerHTML = _tkBtns.map((b,i) => `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+  const colorNames = {{blurple:"Azul",green:"Verde",red:"Rojo",gray:"Gris"}};
+  list.innerHTML = _tkBtns.map((b,i) => {{
+    const opts = ["blurple","green","red","gray"].map(c =>
+      `<option value="${{c}}"${{c===b.color?" selected":""}}>${{colorNames[c]}}</option>`
+    ).join("");
+    return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
       <input type="text" value="${{esc(b.emoji||'')}}" placeholder="Emoji" style="width:54px" oninput="_tkBtns[${{i}}].emoji=this.value;updateTicketPreview()">
       <input type="text" value="${{esc(b.label||'')}}" placeholder="Nombre" style="flex:1;min-width:100px" oninput="_tkBtns[${{i}}].label=this.value;updateTicketPreview()">
-      <select onchange="_tkBtns[${{i}}].color=this.value;updateTicketPreview()" style="width:100px">
-        ${{["blurple","green","red","gray"].map(c=>`<option value="${{c}}"${{'selected' if c==b.color else ''}}>${{c[0].toUpperCase()+c.slice(1)}}</option>`).join("")}}
-      </select>
+      <select onchange="_tkBtns[${{i}}].color=this.value;updateTicketPreview()" style="width:100px">${{opts}}</select>
       <button class="btn btn-d" style="padding:4px 10px;font-size:11px" onclick="_tkBtns.splice(${{i}},1);renderTicketBtns();updateTicketPreview()">✕</button>
-    </div>`
-  ).join("");
+    </div>`;
+  }}).join("");
 }}
 
 function addTicketBtn() {{
