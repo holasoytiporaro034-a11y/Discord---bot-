@@ -29,6 +29,7 @@ from config import (
     welcome_configs, save_welcome,
     verify_configs,  save_verify,
     logs_configs,    save_logs,
+    ticket_configs,  save_ticket,
 )
 
 
@@ -115,10 +116,63 @@ class VerifyView(discord.ui.View):
         )
 
 
+# ─── HELPERS TICKETS ──────────────────────────────────────────────────────────
+_STYLE_MAP = {
+    "blurple": discord.ButtonStyle.blurple,
+    "green":   discord.ButtonStyle.success,
+    "red":     discord.ButtonStyle.danger,
+    "gray":    discord.ButtonStyle.secondary,
+}
+
+def _ticket_embed(cfg: dict) -> discord.Embed:
+    emb_cfg = cfg.get("embed", {})
+    try:
+        color = int(emb_cfg.get("color", "5865F2").lstrip("#"), 16)
+    except ValueError:
+        color = 0x5865F2
+    emb = discord.Embed(
+        title=emb_cfg.get("title", "🎫 Soporte"),
+        description=emb_cfg.get("description", "Pulsa un botón para abrir tu ticket."),
+        color=color,
+    )
+    if emb_cfg.get("author_name"):
+        emb.set_author(name=emb_cfg["author_name"],
+                       url=emb_cfg.get("author_url") or discord.utils.MISSING,
+                       icon_url=emb_cfg.get("author_icon_url") or discord.utils.MISSING)
+    if emb_cfg.get("thumbnail_url"):
+        emb.set_thumbnail(url=emb_cfg["thumbnail_url"])
+    if emb_cfg.get("image_url"):
+        emb.set_image(url=emb_cfg["image_url"])
+    if emb_cfg.get("footer_text"):
+        emb.set_footer(text=emb_cfg["footer_text"],
+                       icon_url=emb_cfg.get("footer_icon_url") or discord.utils.MISSING)
+    return emb
+
+def _ticket_view(gid: str, cfg: dict) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    for i, btn in enumerate(cfg.get("buttons", [])):
+        label  = btn.get("label", f"Ticket {i+1}")
+        emoji  = btn.get("emoji", "🎫")
+        style  = _STYLE_MAP.get(btn.get("color", "blurple"), discord.ButtonStyle.blurple)
+        button = discord.ui.Button(
+            label=label, emoji=emoji, style=style,
+            custom_id=f"ticket_open_{gid}_{i}"
+        )
+        view.add_item(button)
+    return view
+
+
 # ─── EVENTOS ──────────────────────────────────────────────────────────────────
 @client.event
 async def on_ready():
     client.add_view(VerifyView())
+    # registrar vistas de tickets persistentes
+    for gid, cfg in ticket_configs.items():
+        if cfg.get("buttons"):
+            try:
+                client.add_view(_ticket_view(gid, cfg))
+            except Exception:
+                pass
     await tree.sync()
     await client.change_presence(
         status=discord.Status.online,
@@ -128,6 +182,98 @@ async def on_ready():
         )
     )
     logger.info(f"Bot conectado como {client.user}")
+
+
+@client.event
+async def on_interaction(interaction: discord.Interaction):
+    cid = interaction.data.get("custom_id", "") if interaction.data else ""
+
+    # ── Abrir ticket ──────────────────────────────────────────────────────────
+    if cid.startswith("ticket_open_"):
+        parts = cid.split("_")
+        gid   = parts[2]
+        cfg   = ticket_configs.get(gid, {})
+        if not cfg:
+            return await interaction.response.send_message(
+                "❌ El sistema de tickets no está configurado.", ephemeral=True
+            )
+        guild  = interaction.guild
+        member = interaction.user
+        # evitar ticket duplicado
+        existing = discord.utils.get(
+            guild.text_channels,
+            name=f"ticket-{member.name.lower().replace(' ', '-')}"
+        )
+        if existing:
+            return await interaction.response.send_message(
+                f"❌ Ya tienes un ticket abierto: {existing.mention}", ephemeral=True
+            )
+        # permisos del canal
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            member:             discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            guild.me:           discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+        }
+        staff_role_id = cfg.get("staff_role_id")
+        if staff_role_id:
+            role = guild.get_role(int(staff_role_id))
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+        cat_id   = cfg.get("category_id")
+        category = guild.get_channel(int(cat_id)) if cat_id else None
+        ch_name  = f"ticket-{member.name.lower().replace(' ', '-')[:20]}"
+        try:
+            ticket_ch = await guild.create_text_channel(
+                ch_name,
+                overwrites=overwrites,
+                category=category,
+                reason=f"Ticket abierto por {member}"
+            )
+        except Exception as e:
+            logger.error(f"Error creando ticket: {e}")
+            return await interaction.response.send_message("❌ No se pudo crear el canal.", ephemeral=True)
+
+        btn_cfg  = cfg.get("buttons", [])
+        try:
+            btn_idx = int(parts[3]) if len(parts) > 3 else 0
+            btn_lbl = btn_cfg[btn_idx].get("label", "Ticket") if btn_idx < len(btn_cfg) else "Ticket"
+        except Exception:
+            btn_lbl = "Ticket"
+
+        close_view = discord.ui.View(timeout=None)
+        close_btn  = discord.ui.Button(
+            label="🔒 Cerrar ticket", style=discord.ButtonStyle.danger,
+            custom_id=f"ticket_close_{ticket_ch.id}"
+        )
+        close_view.add_item(close_btn)
+
+        welcome_emb = discord.Embed(
+            title=f"🎫 Ticket — {btn_lbl}",
+            description=f"Hola {member.mention}, el staff te atenderá pronto.\nUsa el botón para cerrar el ticket cuando esté resuelto.",
+            color=0x5865F2,
+            timestamp=datetime.now(timezone.utc)
+        )
+        welcome_emb.set_footer(text=f"Ticket de {member}", icon_url=member.display_avatar.url)
+        await ticket_ch.send(embed=welcome_emb, view=close_view)
+        await interaction.response.send_message(
+            f"✅ Tu ticket fue creado: {ticket_ch.mention}", ephemeral=True
+        )
+
+    # ── Cerrar ticket ─────────────────────────────────────────────────────────
+    elif cid.startswith("ticket_close_"):
+        if not interaction.user.guild_permissions.manage_channels and \
+           not any(r.permissions.manage_channels for r in getattr(interaction.user, "roles", [])):
+            # permitir también al creador si es el canal ticket-nombre
+            ch = interaction.channel
+            if not (ch and ch.name.startswith("ticket-")):
+                return await interaction.response.send_message(
+                    "❌ No tienes permiso para cerrar este ticket.", ephemeral=True
+                )
+        await interaction.response.send_message("🔒 Cerrando ticket...", ephemeral=True)
+        try:
+            await interaction.channel.delete(reason=f"Ticket cerrado por {interaction.user}")
+        except Exception as e:
+            logger.error(f"Error cerrando ticket: {e}")
 
 
 @client.event
@@ -618,6 +764,22 @@ async def embed_imagen(interaction: discord.Interaction, canal: discord.TextChan
     await interaction.response.send_message(
         f"✅ Embed con imagen enviado en {canal.mention}", ephemeral=True
     )
+
+
+# ─── TICKET PANEL (slash) ────────────────────────────────────────────────────
+@tree.command(name="ticket_panel", description="Envía el panel de tickets configurado al canal actual")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def ticket_panel_cmd(interaction: discord.Interaction):
+    gid = str(interaction.guild_id)
+    cfg = ticket_configs.get(gid)
+    if not cfg or not cfg.get("buttons"):
+        return await interaction.response.send_message(
+            "❌ Primero configura el panel de tickets en el dashboard.", ephemeral=True
+        )
+    emb  = _ticket_embed(cfg)
+    view = _ticket_view(gid, cfg)
+    await interaction.channel.send(embed=emb, view=view)
+    await interaction.response.send_message("✅ Panel de tickets enviado.", ephemeral=True)
 
 
 # ─── MANEJADOR DE ERRORES ─────────────────────────────────────────────────────
