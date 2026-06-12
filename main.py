@@ -865,29 +865,38 @@ async function openDmChat(uid, name, av, tag) {{
 }}
 
 async function loadDmHistory(uid) {{
-  document.getElementById("dm-history").innerHTML = '<p style="color:#8b949e;font-size:12px">Cargando historial...</p>';
-  const r = await fetch("/api/dm_history/" + uid);
-  const d = await r.json();
-  if (!d.ok || !d.messages.length) {{
-    document.getElementById("dm-history").innerHTML = '<p style="color:#8b949e;font-size:12px;text-align:center">Sin mensajes aún.</p>';
-    return;
-  }}
-  let html = "";
-  d.messages.forEach(msg => {{
-    const isBot  = msg.from_bot;
-    const align  = isBot ? "flex-end" : "flex-start";
-    const bg     = isBot ? "#1a3a2a" : "#161b22";
-    const color  = isBot ? "#3cffa0" : "#e6edf3";
-    const name   = esc(msg.author);
-    const time   = new Date(msg.timestamp).toLocaleTimeString([], {{hour:"2-digit",minute:"2-digit"}});
-    html += `<div style="display:flex;flex-direction:column;align-items:${{align}};margin-bottom:8px">
-      <div style="font-size:10px;color:#8b949e;margin-bottom:2px">${{name}} · ${{time}}</div>
-      <div style="background:${{bg}};color:${{color}};padding:7px 11px;border-radius:10px;max-width:85%;font-size:13px;word-break:break-word">${{esc(msg.content)}}</div>
-    </div>`;
-  }});
   const box = document.getElementById("dm-history");
-  box.innerHTML = html;
-  box.scrollTop = box.scrollHeight;
+  box.innerHTML = '<p style="color:#8b949e;font-size:12px">Cargando historial...</p>';
+  try {{
+    const r = await fetch("/api/dm_history/" + uid);
+    if (!r.ok) {{
+      box.innerHTML = '<p style="color:#f85149;font-size:12px;text-align:center">Error ' + r.status + ' al cargar historial.</p>';
+      return;
+    }}
+    const d = await r.json();
+    if (!d.ok || !d.messages || !d.messages.length) {{
+      box.innerHTML = '<p style="color:#8b949e;font-size:12px;text-align:center">Sin mensajes aún — envía el primer DM.</p>';
+      return;
+    }}
+    let html = "";
+    d.messages.forEach(msg => {{
+      if (!msg.content) return;
+      const isBot = msg.from_bot;
+      const align = isBot ? "flex-end" : "flex-start";
+      const bg    = isBot ? "#1a3a2a" : "#161b22";
+      const color = isBot ? "#3cffa0" : "#e6edf3";
+      const name  = esc(msg.author || "?");
+      const time  = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], {{hour:"2-digit",minute:"2-digit"}}) : "";
+      html += `<div style="display:flex;flex-direction:column;align-items:${{align}};margin-bottom:8px">
+        <div style="font-size:10px;color:#8b949e;margin-bottom:2px">${{name}}${{time ? " · "+time : ""}}</div>
+        <div style="background:${{bg}};color:${{color}};padding:7px 11px;border-radius:10px;max-width:85%;font-size:13px;word-break:break-word">${{esc(msg.content)}}</div>
+      </div>`;
+    }});
+    box.innerHTML = html || '<p style="color:#8b949e;font-size:12px;text-align:center">Sin mensajes con contenido.</p>';
+    box.scrollTop = box.scrollHeight;
+  }} catch(e) {{
+    box.innerHTML = '<p style="color:#f85149;font-size:12px;text-align:center">Error: ' + esc(String(e)) + '</p>';
+  }}
 }}
 
 async function sendDmChat() {{
@@ -1098,26 +1107,44 @@ def api_dm():
 @app.route("/api/dm_history/<user_id>", methods=["GET"])
 @require_login
 def api_dm_history(user_id):
-    ch = http.post(f"{API}/users/@me/channels",
-                   headers={**bh(), "Content-Type": "application/json"},
-                   json={"recipient_id": user_id})
-    if not ch.ok:
-        return jsonify({"ok": False, "messages": []})
-    cid  = ch.json()["id"]
-    msgs = http.get(f"{API}/channels/{cid}/messages?limit=20",
-                    headers=bh())
-    if not msgs.ok:
-        return jsonify({"ok": True, "messages": []})
-    result = []
-    me_id  = str(client.user.id) if client.user else None
-    for m in reversed(msgs.json()):
-        result.append({
-            "author":    m["author"].get("global_name") or m["author"]["username"],
-            "content":   m.get("content", ""),
-            "timestamp": m["timestamp"],
-            "from_bot":  m["author"]["id"] == me_id
-        })
-    return jsonify({"ok": True, "messages": result})
+    try:
+        ch = http.post(f"{API}/users/@me/channels",
+                       headers={**bh(), "Content-Type": "application/json"},
+                       json={"recipient_id": user_id},
+                       timeout=8)
+        if not ch.ok:
+            logger.warning(f"dm_history: no pude abrir DM con {user_id}: {ch.status_code} {ch.text[:200]}")
+            return jsonify({"ok": False, "messages": [], "error": f"Discord {ch.status_code}"})
+        ch_data = ch.json()
+        cid = ch_data.get("id")
+        if not cid:
+            return jsonify({"ok": False, "messages": [], "error": "Sin canal DM"})
+        msgs = http.get(f"{API}/channels/{cid}/messages?limit=25",
+                        headers=bh(), timeout=8)
+        if not msgs.ok:
+            logger.warning(f"dm_history: no pude leer mensajes del canal {cid}: {msgs.status_code}")
+            return jsonify({"ok": True, "messages": []})
+        raw    = msgs.json()
+        me_id  = str(client.user.id) if client.user else None
+        result = []
+        for m in reversed(raw):
+            content = m.get("content", "")
+            if not content and m.get("embeds"):
+                content = "[embed]"
+            elif not content and m.get("attachments"):
+                content = "[archivo adjunto]"
+            if not content:
+                continue
+            result.append({
+                "author":    m["author"].get("global_name") or m["author"].get("username", "?"),
+                "content":   content,
+                "timestamp": m.get("timestamp", ""),
+                "from_bot":  m["author"]["id"] == me_id
+            })
+        return jsonify({"ok": True, "messages": result})
+    except Exception as e:
+        logger.error(f"dm_history error: {e}")
+        return jsonify({"ok": False, "messages": [], "error": str(e)})
 
 
 @app.route("/api/ban", methods=["POST"])
