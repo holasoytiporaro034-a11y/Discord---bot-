@@ -30,6 +30,7 @@ from config import (
     welcome_configs, save_welcome,
     verify_configs,  save_verify,
     logs_configs,    save_logs,
+    ticket_configs,  save_ticket,
 )
 
 # ─── FLASK ────────────────────────────────────────────────────────────────────
@@ -368,6 +369,7 @@ def dashboard(gid):
     <button class="tab" onclick="sw(this,'verificacion')">🔐 Verificación</button>
     <button class="tab" onclick="sw(this,'logs')">📋 Logs</button>
     <button class="tab" onclick="sw(this,'miembros')">👥 Miembros</button>
+    <button class="tab" onclick="sw(this,'tickets')">🎫 Tickets</button>
   </div>
 
   <!-- RESUMEN -->
@@ -552,6 +554,67 @@ def dashboard(gid):
         🔨 Bans &nbsp;·&nbsp; 👢 Kicks &nbsp;·&nbsp; 🔇 Mutes &nbsp;·&nbsp; 🗑️ Purges &nbsp;·&nbsp; ✅ Verificaciones<br>
         ✏️ Mensajes editados &nbsp;·&nbsp; 🎭 Cambios de rol &nbsp;·&nbsp; 📝 Cambios de apodo
       </div>
+    </div>
+  </div>
+
+  <!-- TICKETS -->
+  <div id="p-tickets" class="panel">
+    <div id="al-tk" class="alert"></div>
+    <div class="card">
+      <h3>🎫 Panel de Tickets</h3>
+      <p>Diseña el embed y los botones. Luego envíalo a un canal o usa <code>/ticket_panel</code>.</p>
+
+      <div style="font-weight:700;margin:14px 0 8px;font-size:13px">📌 Configuración general</div>
+      <div class="grid2">
+        <div class="fg"><label>Canal del panel</label>
+          <select id="tk-ch"><option value="">Selecciona canal...</option>{copts}</select></div>
+        <div class="fg"><label>Categoría para tickets (opcional)</label>
+          <select id="tk-cat"><option value="">Sin categoría</option>{copts}</select></div>
+      </div>
+      <div class="fg"><label>Rol de staff (verá todos los tickets)</label>
+        <select id="tk-role"><option value="">Sin rol específico</option>{ropts}</select></div>
+
+      <div style="font-weight:700;margin:18px 0 8px;font-size:13px">🎨 Embed del panel</div>
+      <div class="grid2">
+        <div class="fg"><label>Color del embed</label>
+          <input type="color" id="tk-color" value="#5865F2"></div>
+        <div class="fg"><label>Título</label>
+          <input type="text" id="tk-title" placeholder="🎫 Help & Support"></div>
+      </div>
+      <div class="fg"><label>Descripción</label>
+        <textarea id="tk-desc" placeholder="Si tienes alguna duda, pulsa el botón para abrir un ticket." style="min-height:80px"></textarea></div>
+      <div class="grid2">
+        <div class="fg"><label>Autor (nombre)</label>
+          <input type="text" id="tk-author" placeholder="Nombre del autor"></div>
+        <div class="fg"><label>Autor (icono URL)</label>
+          <input type="text" id="tk-author-icon" placeholder="https://..."></div>
+      </div>
+      <div class="grid2">
+        <div class="fg"><label>Imagen URL</label>
+          <input type="text" id="tk-img" placeholder="https://cdn.discordapp.com/..."></div>
+        <div class="fg"><label>Thumbnail URL</label>
+          <input type="text" id="tk-thumb" placeholder="https://..."></div>
+      </div>
+      <div class="grid2">
+        <div class="fg"><label>Footer texto</label>
+          <input type="text" id="tk-foot" placeholder="Powered by RANHUN"></div>
+        <div class="fg"><label>Footer icono URL</label>
+          <input type="text" id="tk-foot-icon" placeholder="https://..."></div>
+      </div>
+
+      <div style="font-weight:700;margin:18px 0 8px;font-size:13px">🔘 Botones (máx. 5)</div>
+      <div id="tk-btns-list"></div>
+      <button class="btn btn-d" style="margin-top:8px" onclick="addTicketBtn()">+ Agregar botón</button>
+
+      <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
+        <button class="btn btn-g" onclick="saveTicketConfig()">💾 Guardar configuración</button>
+        <button class="btn btn-b" onclick="sendTicketPanel()">📨 Enviar panel ahora</button>
+      </div>
+    </div>
+
+    <div class="card" id="tk-preview-card" style="display:none">
+      <div style="font-weight:700;margin-bottom:10px;font-size:13px">👁️ Vista previa del panel</div>
+      <div id="tk-preview" style="background:#0b0e13;border:1px solid #21262d;border-radius:8px;padding:14px"></div>
     </div>
   </div>
 
@@ -842,6 +905,119 @@ async function sendDmChat() {{
 }}
 
 function esc(s) {{ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }}
+
+// ── TICKETS ──────────────────────────────────────────────────────────────────
+let _tkBtns = [];
+const _COLORS_MAP = {{blurple:"#5865F2",green:"#57F287",red:"#ED4245",gray:"#4F545C"}};
+
+async function loadTicketConfig() {{
+  const r = await fetch("/api/ticket_config/" + GID);
+  const d = await r.json();
+  if (!d.ok) return;
+  const c = d.config;
+  document.getElementById("tk-ch").value    = c.channel_id    || "";
+  document.getElementById("tk-cat").value   = c.category_id   || "";
+  document.getElementById("tk-role").value  = c.staff_role_id || "";
+  const emb = c.embed || {{}};
+  document.getElementById("tk-color").value  = emb.color       || "#5865F2";
+  document.getElementById("tk-title").value  = emb.title       || "";
+  document.getElementById("tk-desc").value   = emb.description || "";
+  document.getElementById("tk-author").value = emb.author_name || "";
+  document.getElementById("tk-author-icon").value = emb.author_icon_url || "";
+  document.getElementById("tk-img").value    = emb.image_url   || "";
+  document.getElementById("tk-thumb").value  = emb.thumbnail_url || "";
+  document.getElementById("tk-foot").value   = emb.footer_text || "";
+  document.getElementById("tk-foot-icon").value = emb.footer_icon_url || "";
+  _tkBtns = c.buttons || [];
+  renderTicketBtns();
+  updateTicketPreview();
+}}
+
+function renderTicketBtns() {{
+  const list = document.getElementById("tk-btns-list");
+  if (!_tkBtns.length) {{ list.innerHTML = '<p style="color:#8b949e;font-size:12px">Sin botones aún.</p>'; return; }}
+  list.innerHTML = _tkBtns.map((b,i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <input type="text" value="${{esc(b.emoji||'')}}" placeholder="Emoji" style="width:54px" oninput="_tkBtns[${{i}}].emoji=this.value;updateTicketPreview()">
+      <input type="text" value="${{esc(b.label||'')}}" placeholder="Nombre" style="flex:1;min-width:100px" oninput="_tkBtns[${{i}}].label=this.value;updateTicketPreview()">
+      <select onchange="_tkBtns[${{i}}].color=this.value;updateTicketPreview()" style="width:100px">
+        ${{["blurple","green","red","gray"].map(c=>`<option value="${{c}}"${{'selected' if c==b.color else ''}}>${{c[0].toUpperCase()+c.slice(1)}}</option>`).join("")}}
+      </select>
+      <button class="btn btn-d" style="padding:4px 10px;font-size:11px" onclick="_tkBtns.splice(${{i}},1);renderTicketBtns();updateTicketPreview()">✕</button>
+    </div>`
+  ).join("");
+}}
+
+function addTicketBtn() {{
+  if (_tkBtns.length >= 5) return show("al-tk","❌ Máximo 5 botones.",false);
+  _tkBtns.push({{label:"Soporte",emoji:"🎧",color:"blurple"}});
+  renderTicketBtns();
+  updateTicketPreview();
+}}
+
+function getTicketData() {{
+  return {{
+    guild_id:      GID,
+    channel_id:    document.getElementById("tk-ch").value,
+    category_id:   document.getElementById("tk-cat").value,
+    staff_role_id: document.getElementById("tk-role").value,
+    embed: {{
+      color:           document.getElementById("tk-color").value,
+      title:           document.getElementById("tk-title").value,
+      description:     document.getElementById("tk-desc").value,
+      author_name:     document.getElementById("tk-author").value,
+      author_icon_url: document.getElementById("tk-author-icon").value,
+      image_url:       document.getElementById("tk-img").value,
+      thumbnail_url:   document.getElementById("tk-thumb").value,
+      footer_text:     document.getElementById("tk-foot").value,
+      footer_icon_url: document.getElementById("tk-foot-icon").value,
+    }},
+    buttons: _tkBtns
+  }};
+}}
+
+async function saveTicketConfig() {{
+  const d = getTicketData();
+  const r = await post("/api/ticket_config", d);
+  show("al-tk", r.ok ? "✅ Configuración guardada." : "❌ " + (r.error||""), r.ok);
+}}
+
+async function sendTicketPanel() {{
+  const d = getTicketData();
+  if (!d.channel_id) return show("al-tk","❌ Selecciona un canal primero.",false);
+  if (!d.buttons.length) return show("al-tk","❌ Agrega al menos un botón.",false);
+  const r = await post("/api/send_ticket_panel", d);
+  show("al-tk", r.ok ? "✅ Panel enviado al canal." : "❌ " + (r.error||""), r.ok);
+}}
+
+function updateTicketPreview() {{
+  const card = document.getElementById("tk-preview-card");
+  const prev = document.getElementById("tk-preview");
+  card.style.display = "block";
+  const color = document.getElementById("tk-color").value;
+  const title = esc(document.getElementById("tk-title").value || "🎫 Help & Support");
+  const desc  = esc(document.getElementById("tk-desc").value || "Pulsa un botón para abrir tu ticket.");
+  const auth  = esc(document.getElementById("tk-author").value);
+  const foot  = esc(document.getElementById("tk-foot").value);
+  const img   = document.getElementById("tk-img").value;
+  const thumb = document.getElementById("tk-thumb").value;
+  const btns  = _tkBtns.map(b => `<span style="background:${{_COLORS_MAP[b.color]||'#5865F2'}};color:#fff;padding:6px 14px;border-radius:4px;font-size:12px;font-weight:700">${{esc(b.emoji||'')}} ${{esc(b.label||'')}}</span>`).join(" ");
+  prev.innerHTML = `<div style="border-left:4px solid ${{color}};padding:10px 12px;background:#161b22;border-radius:0 8px 8px 0">
+    ${{auth ? `<div style="font-size:11px;color:#8b949e;margin-bottom:4px">👤 ${{auth}}</div>` : ""}}
+    <div style="font-weight:700;margin-bottom:6px">${{title}}</div>
+    <div style="font-size:13px;color:#8b949e;margin-bottom:8px;white-space:pre-wrap">${{desc}}</div>
+    ${{thumb ? `<img src="${{esc(thumb)}}" style="float:right;width:60px;height:60px;border-radius:6px;object-fit:cover">` : ""}}
+    ${{img ? `<img src="${{esc(img)}}" style="width:100%;border-radius:6px;margin:6px 0">` : ""}}
+    ${{foot ? `<div style="font-size:11px;color:#8b949e;border-top:1px solid #21262d;padding-top:6px;margin-top:8px">${{foot}}</div>` : ""}}
+  </div>
+  ${{btns ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${{btns}}</div>` : ""}}`;
+}}
+
+// Cargar config de tickets al entrar al tab
+document.addEventListener("DOMContentLoaded", () => {{
+  const tkTab = document.querySelector('[onclick*="tickets"]');
+  if (tkTab) tkTab.addEventListener("click", () => {{ if(!_tkBtns.length) loadTicketConfig(); }}, {{once:true}});
+}});
 </script>
 </body></html>"""
 
@@ -1074,6 +1250,98 @@ def api_quitarlogs():
     if gid in logs_configs:
         del logs_configs[gid]
         save_logs(logs_configs)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/ticket_config/<gid>")
+@require_login
+def api_get_ticket_config(gid):
+    return jsonify({"ok": True, "config": ticket_configs.get(gid, {})})
+
+
+@app.route("/api/ticket_config", methods=["POST"])
+@require_login
+def api_save_ticket_config():
+    d   = request.json
+    gid = str(d["guild_id"])
+    ticket_configs[gid] = {
+        "channel_id":    d.get("channel_id", ""),
+        "category_id":   d.get("category_id", ""),
+        "staff_role_id": d.get("staff_role_id", ""),
+        "embed":         d.get("embed", {}),
+        "buttons":       d.get("buttons", []),
+    }
+    save_ticket(ticket_configs)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/send_ticket_panel", methods=["POST"])
+@require_login
+def api_send_ticket_panel():
+    d   = request.json
+    gid = str(d["guild_id"])
+    cfg = {
+        "channel_id":    d.get("channel_id", ""),
+        "category_id":   d.get("category_id", ""),
+        "staff_role_id": d.get("staff_role_id", ""),
+        "embed":         d.get("embed", {}),
+        "buttons":       d.get("buttons", []),
+    }
+    ticket_configs[gid] = cfg
+    save_ticket(ticket_configs)
+
+    ch_id   = cfg.get("channel_id")
+    if not ch_id:
+        return jsonify({"ok": False, "error": "Sin canal seleccionado"})
+    emb_cfg = cfg.get("embed", {})
+    try:
+        color = int(emb_cfg.get("color", "#5865F2").lstrip("#"), 16)
+    except ValueError:
+        color = 0x5865F2
+
+    embed_payload: dict = {
+        "title":       emb_cfg.get("title", "🎫 Soporte"),
+        "description": emb_cfg.get("description", "Pulsa un botón para abrir tu ticket."),
+        "color":       color,
+    }
+    if emb_cfg.get("author_name"):
+        embed_payload["author"] = {"name": emb_cfg["author_name"],
+                                   "icon_url": emb_cfg.get("author_icon_url", "")}
+    if emb_cfg.get("thumbnail_url"):
+        embed_payload["thumbnail"] = {"url": emb_cfg["thumbnail_url"]}
+    if emb_cfg.get("image_url"):
+        embed_payload["image"] = {"url": emb_cfg["image_url"]}
+    if emb_cfg.get("footer_text"):
+        embed_payload["footer"] = {"text": emb_cfg["footer_text"],
+                                   "icon_url": emb_cfg.get("footer_icon_url", "")}
+
+    style_map = {"blurple": 1, "gray": 2, "green": 3, "red": 4}
+    components = []
+    btns = cfg.get("buttons", [])
+    if btns:
+        row_btns = []
+        for i, b in enumerate(btns[:5]):
+            btn = {
+                "type":      2,
+                "style":     style_map.get(b.get("color", "blurple"), 1),
+                "label":     b.get("label", f"Ticket {i+1}"),
+                "custom_id": f"ticket_open_{gid}_{i}",
+            }
+            if b.get("emoji"):
+                btn["emoji"] = {"name": b["emoji"]}
+            row_btns.append(btn)
+        components.append({"type": 1, "components": row_btns})
+
+    payload = {"embeds": [embed_payload]}
+    if components:
+        payload["components"] = components
+
+    r = http.post(f"{API}/channels/{ch_id}/messages",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json=payload)
+    if not r.ok:
+        err = r.json().get("message", "Error enviando panel")
+        return jsonify({"ok": False, "error": err})
     return jsonify({"ok": True})
 
 
