@@ -20,7 +20,9 @@ def _save(name, data):
 welcome_configs = _load("welcome")
 verify_configs  = _load("verify")
 logs_configs    = _load("logs")
+ticket_configs  = _load("ticket")
 
 def save_welcome(d): _save("welcome", d)
 def save_verify(d):  _save("verify",  d)
 def save_logs(d):    _save("logs",    d)
+def save_ticket(d):  _save("ticket",  d)
