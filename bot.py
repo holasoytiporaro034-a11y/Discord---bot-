@@ -275,6 +275,80 @@ async def on_interaction(interaction: discord.Interaction):
         except Exception as e:
             logger.error(f"Error cerrando ticket: {e}")
 
+    # ── Select menu de tickets ─────────────────────────────────────────────────
+    elif cid.startswith("ticket_select_"):
+        # component_type 3 → values list
+        values = interaction.data.get("values", []) if interaction.data else []
+        if not values:
+            return await interaction.response.send_message("❌ No se seleccionó nada.", ephemeral=True)
+        value = values[0]   # e.g. "ticket_sel_{gid}_{i}"
+        parts = cid.split("_")   # ticket_select_{gid}
+        gid   = parts[2] if len(parts) > 2 else str(interaction.guild_id)
+        cfg   = ticket_configs.get(gid, {})
+        if not cfg:
+            return await interaction.response.send_message(
+                "❌ El sistema de tickets no está configurado.", ephemeral=True
+            )
+        # determine option label
+        sel_opts = cfg.get("select_options", [])
+        try:
+            opt_idx  = int(value.split("_")[-1])
+            opt_lbl  = sel_opts[opt_idx].get("label", "Ticket") if opt_idx < len(sel_opts) else "Ticket"
+        except Exception:
+            opt_lbl  = "Ticket"
+
+        guild  = interaction.guild
+        member = interaction.user
+        existing = discord.utils.get(
+            guild.text_channels,
+            name=f"ticket-{member.name.lower().replace(' ', '-')}"
+        )
+        if existing:
+            return await interaction.response.send_message(
+                f"❌ Ya tienes un ticket abierto: {existing.mention}", ephemeral=True
+            )
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            member:             discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            guild.me:           discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+        }
+        staff_role_id = cfg.get("staff_role_id")
+        if staff_role_id:
+            role = guild.get_role(int(staff_role_id))
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+        cat_id   = cfg.get("category_id")
+        category = guild.get_channel(int(cat_id)) if cat_id else None
+        ch_name  = f"ticket-{member.name.lower().replace(' ', '-')[:20]}"
+        try:
+            ticket_ch = await guild.create_text_channel(
+                ch_name,
+                overwrites=overwrites,
+                category=category,
+                reason=f"Ticket abierto por {member}"
+            )
+        except Exception as e:
+            logger.error(f"Error creando ticket (select): {e}")
+            return await interaction.response.send_message("❌ No se pudo crear el canal.", ephemeral=True)
+
+        close_view = discord.ui.View(timeout=None)
+        close_btn  = discord.ui.Button(
+            label="🔒 Cerrar ticket", style=discord.ButtonStyle.danger,
+            custom_id=f"ticket_close_{ticket_ch.id}"
+        )
+        close_view.add_item(close_btn)
+        welcome_emb = discord.Embed(
+            title=f"🎫 Ticket — {opt_lbl}",
+            description=f"Hola {member.mention}, el staff te atenderá pronto.\nUsa el botón para cerrar el ticket cuando esté resuelto.",
+            color=0x5865F2,
+            timestamp=datetime.now(timezone.utc)
+        )
+        welcome_emb.set_footer(text=f"Ticket de {member}", icon_url=member.display_avatar.url)
+        await ticket_ch.send(embed=welcome_emb, view=close_view)
+        await interaction.response.send_message(
+            f"✅ Tu ticket fue creado: {ticket_ch.mention}", ephemeral=True
+        )
+
 
 @client.event
 async def on_member_join(member: discord.Member):
