@@ -449,6 +449,26 @@ def dashboard(gid):
         <input type="text" id="ei-foot" placeholder="Texto del footer"></div>
       <button class="btn btn-g" onclick="sendEmbedImagen()">Enviar embed con imagen</button>
     </div>
+    <div class="card">
+      <h3>🔗 Mensaje con botones de enlace</h3>
+      <p>Envía un mensaje o embed con botones que abren URLs — como Panel, Documentación, Soporte, etc.</p>
+      <div class="grid2">
+        <div class="fg"><label>Canal</label>
+          <select id="lb-ch"><option value="">Canal...</option>{copts}</select></div>
+        <div class="fg"><label>Color del embed (opcional)</label>
+          <input type="color" id="lb-col" value="#5865F2"></div>
+      </div>
+      <div class="fg"><label>Título del embed (opcional)</label>
+        <input type="text" id="lb-title" placeholder="Ej: Links de soporte — enlaces abajo."></div>
+      <div class="fg"><label>Descripción (opcional)</label>
+        <textarea id="lb-desc" placeholder="Descripción del mensaje..." style="min-height:60px"></textarea></div>
+      <div style="font-weight:700;margin:14px 0 8px;font-size:13px">🔗 Botones de enlace (máx. 5)</div>
+      <div id="lb-btns-list"><p style="color:#8b949e;font-size:12px">Sin botones aún.</p></div>
+      <button class="btn btn-d" style="margin-top:6px" onclick="addLinkBtn()">+ Agregar botón</button>
+      <div style="margin-top:14px">
+        <button class="btn btn-g" onclick="sendLinkBtns()">📨 Enviar mensaje con botones</button>
+      </div>
+    </div>
   </div>
 
   <!-- MODERACIÓN -->
@@ -602,9 +622,25 @@ def dashboard(gid):
           <input type="text" id="tk-foot-icon" placeholder="https://..."></div>
       </div>
 
-      <div style="font-weight:700;margin:18px 0 8px;font-size:13px">🔘 Botones (máx. 5)</div>
-      <div id="tk-btns-list"></div>
-      <button class="btn btn-d" style="margin-top:8px" onclick="addTicketBtn()">+ Agregar botón</button>
+      <div style="font-weight:700;margin:18px 0 8px;font-size:13px">🎛️ Tipo de interacción</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button id="tk-mode-btn" class="btn btn-b" onclick="setTicketMode('buttons')" style="flex:1">🔘 Botones</button>
+        <button id="tk-mode-sel" class="btn btn-d" onclick="setTicketMode('select')" style="flex:1">📋 Menú Select</button>
+      </div>
+
+      <div id="tk-section-buttons">
+        <div style="font-weight:700;margin-bottom:8px;font-size:13px">🔘 Botones (máx. 5)</div>
+        <div id="tk-btns-list"></div>
+        <button class="btn btn-d" style="margin-top:8px" onclick="addTicketBtn()">+ Agregar botón</button>
+      </div>
+
+      <div id="tk-section-select" style="display:none">
+        <div style="font-weight:700;margin-bottom:8px;font-size:13px">📋 Opciones del menú (máx. 25)</div>
+        <div class="fg"><label>Texto del placeholder</label>
+          <input type="text" id="tk-sel-placeholder" placeholder="Selecciona una opción..." oninput="updateTicketPreview()"></div>
+        <div id="tk-sel-opts-list"></div>
+        <button class="btn btn-d" style="margin-top:8px" onclick="addSelectOpt()">+ Agregar opción</button>
+      </div>
 
       <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
         <button class="btn btn-g" onclick="saveTicketConfig()">💾 Guardar configuración</button>
@@ -915,9 +951,73 @@ async function sendDmChat() {{
 
 function esc(s) {{ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }}
 
+// ── LINK BUTTONS ─────────────────────────────────────────────────────────────
+let _lbBtns = [];
+
+function renderLinkBtns() {{
+  const list = document.getElementById("lb-btns-list");
+  if (!_lbBtns.length) {{ list.innerHTML = '<p style="color:#8b949e;font-size:12px">Sin botones aún.</p>'; return; }}
+  list.innerHTML = _lbBtns.map((b,i) => `
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <input type="text" value="${{esc(b.emoji||'')}}" placeholder="Emoji" style="width:50px" oninput="_lbBtns[${{i}}].emoji=this.value">
+      <input type="text" value="${{esc(b.label||'')}}" placeholder="Etiqueta" style="flex:1;min-width:90px" oninput="_lbBtns[${{i}}].label=this.value">
+      <input type="text" value="${{esc(b.url||'')}}" placeholder="https://..." style="flex:2;min-width:150px" oninput="_lbBtns[${{i}}].url=this.value">
+      <button class="btn btn-d" style="padding:4px 8px;font-size:11px" onclick="_lbBtns.splice(${{i}},1);renderLinkBtns()">✕</button>
+    </div>`).join("");
+}}
+
+function addLinkBtn() {{
+  if (_lbBtns.length >= 5) return show("al-emb","❌ Máximo 5 botones.",false);
+  _lbBtns.push({{emoji:"🔗",label:"",url:""}});
+  renderLinkBtns();
+}}
+
+async function sendLinkBtns() {{
+  const ch = document.getElementById("lb-ch").value;
+  if (!ch) return show("al-emb","❌ Selecciona un canal.",false);
+  const validBtns = _lbBtns.filter(b => b.label && b.url);
+  if (!validBtns.length) return show("al-emb","❌ Agrega al menos un botón con etiqueta y URL.",false);
+  const r = await post("/api/link_buttons", {{
+    channel_id: ch,
+    color: parseInt(document.getElementById("lb-col").value.replace("#",""),16),
+    title: document.getElementById("lb-title").value.trim(),
+    description: document.getElementById("lb-desc").value.trim(),
+    buttons: validBtns
+  }});
+  show("al-emb", r.ok ? "✅ Mensaje con botones enviado." : "❌ " + (r.error||""), r.ok);
+}}
+
 // ── TICKETS ──────────────────────────────────────────────────────────────────
 let _tkBtns = [];
+let _tkSelOpts = [];
+let _tkMode = "buttons";
 const _COLORS_MAP = {{blurple:"#5865F2",green:"#57F287",red:"#ED4245",gray:"#4F545C"}};
+
+function setTicketMode(mode) {{
+  _tkMode = mode;
+  document.getElementById("tk-section-buttons").style.display = mode==="buttons" ? "" : "none";
+  document.getElementById("tk-section-select").style.display  = mode==="select"  ? "" : "none";
+  document.getElementById("tk-mode-btn").className = "btn " + (mode==="buttons" ? "btn-b" : "btn-d");
+  document.getElementById("tk-mode-sel").className = "btn " + (mode==="select"  ? "btn-b" : "btn-d");
+  updateTicketPreview();
+}}
+
+function addSelectOpt() {{
+  _tkSelOpts.push({{emoji:"🎧",label:"",description:""}});
+  renderSelectOpts();
+}}
+
+function renderSelectOpts() {{
+  const list = document.getElementById("tk-sel-opts-list");
+  if (!_tkSelOpts.length) {{ list.innerHTML = '<p style="color:#8b949e;font-size:12px">Sin opciones aún.</p>'; return; }}
+  list.innerHTML = _tkSelOpts.map((o,i) => `
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <input type="text" value="${{esc(o.emoji||'')}}" placeholder="Emoji" style="width:50px" oninput="_tkSelOpts[${{i}}].emoji=this.value;updateTicketPreview()">
+      <input type="text" value="${{esc(o.label||'')}}" placeholder="Nombre" style="flex:1;min-width:100px" oninput="_tkSelOpts[${{i}}].label=this.value;updateTicketPreview()">
+      <input type="text" value="${{esc(o.description||'')}}" placeholder="Descripción (opcional)" style="flex:2;min-width:130px" oninput="_tkSelOpts[${{i}}].description=this.value">
+      <button class="btn btn-d" style="padding:4px 8px;font-size:11px" onclick="_tkSelOpts.splice(${{i}},1);renderSelectOpts();updateTicketPreview()">✕</button>
+    </div>`).join("");
+}}
 
 async function loadTicketConfig() {{
   const r = await fetch("/api/ticket_config/" + GID);
@@ -937,8 +1037,13 @@ async function loadTicketConfig() {{
   document.getElementById("tk-thumb").value  = emb.thumbnail_url || "";
   document.getElementById("tk-foot").value   = emb.footer_text || "";
   document.getElementById("tk-foot-icon").value = emb.footer_icon_url || "";
-  _tkBtns = c.buttons || [];
+  _tkBtns    = c.buttons      || [];
+  _tkSelOpts = c.select_options || [];
+  const ph   = c.select_placeholder || "";
+  if (document.getElementById("tk-sel-placeholder")) document.getElementById("tk-sel-placeholder").value = ph;
+  setTicketMode(c.interaction_mode || "buttons");
   renderTicketBtns();
+  renderSelectOpts();
   updateTicketPreview();
 }}
 
@@ -968,10 +1073,12 @@ function addTicketBtn() {{
 
 function getTicketData() {{
   return {{
-    guild_id:      GID,
-    channel_id:    document.getElementById("tk-ch").value,
-    category_id:   document.getElementById("tk-cat").value,
-    staff_role_id: document.getElementById("tk-role").value,
+    guild_id:             GID,
+    channel_id:           document.getElementById("tk-ch").value,
+    category_id:          document.getElementById("tk-cat").value,
+    staff_role_id:        document.getElementById("tk-role").value,
+    interaction_mode:     _tkMode,
+    select_placeholder:   (document.getElementById("tk-sel-placeholder")||{{}}).value || "Selecciona una opción...",
     embed: {{
       color:           document.getElementById("tk-color").value,
       title:           document.getElementById("tk-title").value,
@@ -983,7 +1090,8 @@ function getTicketData() {{
       footer_text:     document.getElementById("tk-foot").value,
       footer_icon_url: document.getElementById("tk-foot-icon").value,
     }},
-    buttons: _tkBtns
+    buttons:        _tkBtns,
+    select_options: _tkSelOpts,
   }};
 }}
 
@@ -1012,7 +1120,20 @@ function updateTicketPreview() {{
   const foot  = esc(document.getElementById("tk-foot").value);
   const img   = document.getElementById("tk-img").value;
   const thumb = document.getElementById("tk-thumb").value;
-  const btns  = _tkBtns.map(b => `<span style="background:${{_COLORS_MAP[b.color]||'#5865F2'}};color:#fff;padding:6px 14px;border-radius:4px;font-size:12px;font-weight:700">${{esc(b.emoji||'')}} ${{esc(b.label||'')}}</span>`).join(" ");
+
+  let interactionHtml = "";
+  if (_tkMode === "buttons") {{
+    const btns = _tkBtns.map(b => `<span style="background:${{_COLORS_MAP[b.color]||'#5865F2'}};color:#fff;padding:6px 14px;border-radius:4px;font-size:12px;font-weight:700">${{esc(b.emoji||'')}} ${{esc(b.label||'')}}</span>`).join(" ");
+    if (btns) interactionHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${{btns}}</div>`;
+  }} else {{
+    const ph   = esc((document.getElementById("tk-sel-placeholder")||{{}}).value || "Selecciona una opción...");
+    const opts = _tkSelOpts.filter(o=>o.label).map(o => `<div style="padding:8px 12px;border-radius:6px;background:#21262d;margin-bottom:4px;font-size:13px">${{esc(o.emoji||'')}} <b>${{esc(o.label)}}</b>${{o.description ? ` <span style="color:#8b949e;font-size:11px">— ${{esc(o.description)}}</span>` : ""}}</div>`).join("");
+    interactionHtml = `<div style="margin-top:10px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px">
+      <div style="font-size:12px;color:#8b949e;margin-bottom:8px">▾ ${{ph}}</div>
+      ${{opts || '<div style="color:#8b949e;font-size:12px">Sin opciones aún</div>'}}
+    </div>`;
+  }}
+
   prev.innerHTML = `<div style="border-left:4px solid ${{color}};padding:10px 12px;background:#161b22;border-radius:0 8px 8px 0">
     ${{auth ? `<div style="font-size:11px;color:#8b949e;margin-bottom:4px">👤 ${{auth}}</div>` : ""}}
     <div style="font-weight:700;margin-bottom:6px">${{title}}</div>
@@ -1020,8 +1141,7 @@ function updateTicketPreview() {{
     ${{thumb ? `<img src="${{esc(thumb)}}" style="float:right;width:60px;height:60px;border-radius:6px;object-fit:cover">` : ""}}
     ${{img ? `<img src="${{esc(img)}}" style="width:100%;border-radius:6px;margin:6px 0">` : ""}}
     ${{foot ? `<div style="font-size:11px;color:#8b949e;border-top:1px solid #21262d;padding-top:6px;margin-top:8px">${{foot}}</div>` : ""}}
-  </div>
-  ${{btns ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${{btns}}</div>` : ""}}`;
+  </div>${{interactionHtml}}`;
 }}
 
 // Cargar config de tickets al entrar al tab
@@ -1288,17 +1408,49 @@ def api_get_ticket_config(gid):
     return jsonify({"ok": True, "config": ticket_configs.get(gid, {})})
 
 
+@app.route("/api/link_buttons", methods=["POST"])
+@require_login
+def api_link_buttons():
+    d      = request.json
+    ch_id  = d.get("channel_id")
+    if not ch_id:
+        return jsonify({"ok": False, "error": "Sin canal"})
+    btns   = d.get("buttons", [])
+    if not btns:
+        return jsonify({"ok": False, "error": "Sin botones"})
+    payload: dict = {}
+    if d.get("title") or d.get("description"):
+        emb: dict = {"color": d.get("color", 0x5865F2)}
+        if d.get("title"):       emb["title"]       = d["title"]
+        if d.get("description"): emb["description"] = d["description"]
+        payload["embeds"] = [emb]
+    row = []
+    for b in btns[:5]:
+        btn = {"type": 2, "style": 5, "label": b.get("label", "Link"), "url": b.get("url", "")}
+        if b.get("emoji"):
+            btn["emoji"] = {"name": b["emoji"]}
+        row.append(btn)
+    payload["components"] = [{"type": 1, "components": row}]
+    r = http.post(f"{API}/channels/{ch_id}/messages",
+                  headers={**bh(), "Content-Type": "application/json"},
+                  json=payload)
+    return jsonify({"ok": r.ok, "error": r.json().get("message","") if not r.ok else None})
+
+
 @app.route("/api/ticket_config", methods=["POST"])
 @require_login
 def api_save_ticket_config():
     d   = request.json
     gid = str(d["guild_id"])
     ticket_configs[gid] = {
-        "channel_id":    d.get("channel_id", ""),
-        "category_id":   d.get("category_id", ""),
-        "staff_role_id": d.get("staff_role_id", ""),
-        "embed":         d.get("embed", {}),
-        "buttons":       d.get("buttons", []),
+        "channel_id":          d.get("channel_id", ""),
+        "category_id":         d.get("category_id", ""),
+        "staff_role_id":       d.get("staff_role_id", ""),
+        "interaction_mode":    d.get("interaction_mode", "buttons"),
+        "select_placeholder":  d.get("select_placeholder", "Selecciona una opción..."),
+        "embed":               d.get("embed", {}),
+        "buttons":             d.get("buttons", []),
+        "select_options":      d.get("select_options", []),
     }
     save_ticket(ticket_configs)
     return jsonify({"ok": True})
@@ -1310,11 +1462,14 @@ def api_send_ticket_panel():
     d   = request.json
     gid = str(d["guild_id"])
     cfg = {
-        "channel_id":    d.get("channel_id", ""),
-        "category_id":   d.get("category_id", ""),
-        "staff_role_id": d.get("staff_role_id", ""),
-        "embed":         d.get("embed", {}),
-        "buttons":       d.get("buttons", []),
+        "channel_id":         d.get("channel_id", ""),
+        "category_id":        d.get("category_id", ""),
+        "staff_role_id":      d.get("staff_role_id", ""),
+        "interaction_mode":   d.get("interaction_mode", "buttons"),
+        "select_placeholder": d.get("select_placeholder", "Selecciona una opción..."),
+        "embed":              d.get("embed", {}),
+        "buttons":            d.get("buttons", []),
+        "select_options":     d.get("select_options", []),
     }
     ticket_configs[gid] = cfg
     save_ticket(ticket_configs)
@@ -1346,20 +1501,43 @@ def api_send_ticket_panel():
 
     style_map = {"blurple": 1, "gray": 2, "green": 3, "red": 4}
     components = []
-    btns = cfg.get("buttons", [])
-    if btns:
-        row_btns = []
-        for i, b in enumerate(btns[:5]):
-            btn = {
-                "type":      2,
-                "style":     style_map.get(b.get("color", "blurple"), 1),
-                "label":     b.get("label", f"Ticket {i+1}"),
-                "custom_id": f"ticket_open_{gid}_{i}",
+    mode = cfg.get("interaction_mode", "buttons")
+
+    if mode == "select":
+        sel_opts = cfg.get("select_options", [])
+        if sel_opts:
+            options = []
+            for i, opt in enumerate(sel_opts[:25]):
+                o: dict = {
+                    "label":       opt.get("label", f"Opción {i+1}"),
+                    "value":       f"ticket_sel_{gid}_{i}",
+                    "description": opt.get("description", "")[:100],
+                }
+                if opt.get("emoji"):
+                    o["emoji"] = {"name": opt["emoji"]}
+                options.append(o)
+            select_comp: dict = {
+                "type":        3,
+                "custom_id":   f"ticket_select_{gid}",
+                "placeholder": cfg.get("select_placeholder", "Selecciona una opción..."),
+                "options":     options,
             }
-            if b.get("emoji"):
-                btn["emoji"] = {"name": b["emoji"]}
-            row_btns.append(btn)
-        components.append({"type": 1, "components": row_btns})
+            components.append({"type": 1, "components": [select_comp]})
+    else:
+        btns = cfg.get("buttons", [])
+        if btns:
+            row_btns = []
+            for i, b in enumerate(btns[:5]):
+                btn = {
+                    "type":      2,
+                    "style":     style_map.get(b.get("color", "blurple"), 1),
+                    "label":     b.get("label", f"Ticket {i+1}"),
+                    "custom_id": f"ticket_open_{gid}_{i}",
+                }
+                if b.get("emoji"):
+                    btn["emoji"] = {"name": b["emoji"]}
+                row_btns.append(btn)
+            components.append({"type": 1, "components": row_btns})
 
     payload = {"embeds": [embed_payload]}
     if components:
